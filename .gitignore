@@ -1,0 +1,37 @@
+# Ignore configuration and environment files
+.htaccess
+db/
+config/database.php
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+temp/
+logs/
+
+# Ignore OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Ignore node modules (if using npm)
+node_modules/
+
+# Ignore build outputs
+dist/
+build/
+
+# Ignore sensitive uploads
+uploads/
+private/

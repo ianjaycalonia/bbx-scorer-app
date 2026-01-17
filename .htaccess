@@ -1,0 +1,26 @@
+# .htaccess disabled for testing
+# Remove all URL rewriting to allow API calls to work
+
+# Database Configuration
+SetEnv DB_HOST localhost
+SetEnv DB_USER root
+SetEnv DB_PASS ""
+SetEnv DB_NAME blader_db
+
+# Application Settings
+SetEnv APP_NAME "Blader Tournament Manager"
+SetEnv APP_VERSION "1.0.0"
+
+# Security Headers
+<IfModule mod_headers.c>
+    Header always set Access-Control-Allow-Origin "*"
+    Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+    Header always set Access-Control-Allow-Headers "Content-Type, Authorization"
+</IfModule>
+
+# PHP Settings
+<IfModule mod_php.c>
+    php_flag display_errors on
+    php_value error_reporting E_ALL
+    php_value date.timezone "UTC"
+</IfModule>

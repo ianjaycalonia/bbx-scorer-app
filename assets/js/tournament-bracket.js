@@ -1,0 +1,1202 @@
+// Tournament Bracket JavaScript
+let currentTournamentId = null;
+let currentTournament = null;
+let currentTournamentPeople = [];
+let currentUser = null;
+let allRounds = [];
+let currentViewStage = null;
+
+// Bracket connector state
+let connectorResizeObserver = null;
+let connectorDrawScheduled = false;
+let connectorWindowResizeHandler = null;
+let connectorScrollListenerAttached = false;
+let connectorOverlayContainer = null;
+let connectorOverlaySvg = null;
+let connectorScrollHandler = null;
+let connectorCurrentRounds = [];
+let connectorCurrentContainer = null;
+let connectorConnectorsEnabled = false;
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+document.addEventListener('DOMContentLoaded', function () {
+    const urlParams = new URLSearchParams(window.location.search);
+    currentTournamentId = urlParams.get('id');
+
+    if (!currentTournamentId) {
+        window.location.href = 'tournaments.html';
+        return;
+    }
+
+    document.getElementById('backBtn').href = `tournament-detail.html?id=${currentTournamentId}`;
+
+    loadTournamentAndBracket().then(() => {
+        // Check for hash to switch tab (only for Swiss tournaments)
+        if (currentTournament && currentTournament.tournament_type === 'swiss' && window.location.hash === '#standings') {
+            const standingsTab = document.getElementById('standings-tab');
+            if (standingsTab) {
+                bootstrap.Tab.getOrCreateInstance(standingsTab).show();
+            }
+        }
+    });
+
+    // Attach Logout Listener
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+
+    // Real-time Poll (every 5 seconds)
+    setInterval(() => {
+        refreshPageData(false); // false = silent refresh
+    }, 5000);
+});
+
+async function loadTournamentAndBracket() {
+    try {
+        // Fetch fresh data from API
+        const response = await fetch(`api/tournaments/create.php?action=getDetails&tournament_id=${currentTournamentId}`);
+        const data = await response.json();
+
+        if (data.success) {
+            currentTournament = data.tournament;
+            currentTournamentPeople = data.people || [];
+            document.title = `${currentTournament.name} - Bracket`;
+            document.getElementById('tournamentName').textContent = currentTournament.name;
+
+            // Hide standings tab and button for non-Swiss tournaments
+            const isSwiss = currentTournament.tournament_type === 'swiss';
+            const standingsTab = document.getElementById('standings-tab');
+            const standingsPane = document.getElementById('standings-pane');
+            
+            if (!isSwiss && standingsTab) {
+                standingsTab.style.display = 'none';
+            }
+            if (!isSwiss && standingsPane) {
+                standingsPane.style.display = 'none';
+            }
+
+            // Fetch current user for authorization
+            const userResponse = await fetch('api/users/profile.php');
+            const userData = await userResponse.json();
+            if (userData.success) {
+                currentUser = userData.profile;
+            }
+
+            refreshPageData();
+        } else {
+            showToast('Tournament not found.', { variant: 'danger' });
+        }
+    } catch (error) {
+        console.error('Error loading tournament:', error);
+    }
+}
+
+async function refreshPageData(showNotification = false) {
+    const promises = [refreshBracket(false)];
+    
+    // Only refresh standings for Swiss tournaments
+    if (currentTournament && currentTournament.tournament_type === 'swiss') {
+        promises.push(refreshStandings());
+    }
+    
+    await Promise.all(promises);
+    if (showNotification) {
+        showToast('All data refreshed.', { variant: 'success' });
+    }
+}
+
+async function refreshBracket(showNotification = false) {
+    try {
+        const response = await fetch(`api/tournaments/rounds.php?action=getState&tournament_id=${currentTournamentId}`);
+        const result = await response.json();
+
+        if (result.success) {
+            allRounds = result.rounds || [];
+
+            // If viewing stage hasn't been set yet, set to tournament's current stage
+            if (currentViewStage === null && currentTournament) {
+                currentViewStage = parseInt(currentTournament.current_stage);
+            } else if (currentViewStage === null) {
+                currentViewStage = 1;
+            }
+
+            // Sync the UI radio buttons
+            const stage1Radio = document.getElementById('stage1Tab');
+            const stage2Radio = document.getElementById('stage2Tab');
+            if (stage1Radio && stage2Radio) {
+                if (currentViewStage === 2) stage2Radio.checked = true;
+                else stage1Radio.checked = true;
+            }
+
+            renderRounds(allRounds);
+            
+            // Check if tournament is eligible for Stage 2 transition
+            checkStage2Eligibility(allRounds);
+        } else {
+            console.error('Failed to load bracket state:', result.message);
+        }
+    } catch (error) {
+        console.error('Error fetching bracket state:', error);
+    }
+}
+
+async function refreshStandings() {
+    try {
+        const response = await fetch(`api/tournaments/rounds.php?action=getStandings&tournament_id=${currentTournamentId}`);
+        const result = await response.json();
+
+        if (result.success) {
+            renderStandings(result.standings || []);
+        } else {
+            console.error('Failed to load standings:', result.message);
+        }
+    } catch (error) {
+        console.error('Error fetching standings:', error);
+    }
+}
+
+function renderStandings(standings) {
+    const list = document.getElementById('standingsList');
+    if (!list) return;
+
+    if (standings.length === 0) {
+        list.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">No results recorded yet. Standings will appear as matches complete.</td></tr>';
+        return;
+    }
+
+    const topCut = currentTournament && currentTournament.top_cut ? parseInt(currentTournament.top_cut, 10) : 0;
+    // Use the same Swiss completion logic as the "Proceed to Stage 2" button
+    const swissComplete = isSwissRoundsComplete(allRounds);
+
+    list.innerHTML = standings.map((s, index) => {
+        const rank = index + 1;
+        const isAdvanced = swissComplete && topCut > 0 && rank <= topCut;
+
+        return `
+        <tr>
+            <td class="rank-cell">#${rank}</td>
+            <td>
+                <div class="player-cell">
+                    <div class="player-avatar">${s.name.charAt(0).toUpperCase()}</div>
+                    <div class="player-name">${s.name}${isAdvanced ? ' <span class="badge badge-advanced">Advanced</span>' : ''}</div>
+                </div>
+            </td>
+            <td class="text-center record-cell">
+                ${s.wins}W - ${s.losses}L
+            </td>
+            <td class="text-center">
+                <span class="fw-bold text-primary">${s.bey_points}</span>
+            </td>
+            <td class="text-center">
+                <span class="fw-bold text-info">${parseFloat(s.strength_metric || s.ompa).toFixed(2)}</span>
+            </td>
+            <td class="text-center">
+                <span class="badge bg-light text-dark border">${(s.fqi * 100).toFixed(0)}%</span>
+            </td>
+        </tr>
+    `;
+    }).join('');
+}
+
+function renderRounds(roundsData) {
+    const container = document.getElementById('roundsContainer');
+    if (!container) return;
+
+    // Clean up any existing connector overlay before re-rendering
+    teardownConnectorOverlay();
+
+    const filteredRounds = filterRoundsForCurrentStage(roundsData, currentViewStage);
+    const bracketLayout = computeBracketLayout(filteredRounds);
+
+    // Check if this is a single elimination tournament
+    const isSingleEliminationTournament = currentTournament && currentTournament.tournament_type === 'single_elimination';
+    
+    // Show/Hide the stage switcher based on tournament type and available stages
+    const hasMultipleStages = [...new Set((roundsData || []).map(r => r.stage))].length > 1;
+    const stageTabsContainer = document.getElementById('stageTabsContainer');
+    if (stageTabsContainer) {
+        if (hasMultipleStages && !isSingleEliminationTournament) {
+            stageTabsContainer.classList.remove('stage-tabs-container-hidden');
+            stageTabsContainer.classList.add('stage-tabs-container-visible');
+        } else {
+            stageTabsContainer.classList.add('stage-tabs-container-hidden');
+            stageTabsContainer.classList.remove('stage-tabs-container-visible');
+        }
+    }
+
+    // Hide Stage 2 transition button for single elimination tournaments
+    const stage2ButtonContainer = document.getElementById('stage2ButtonContainer');
+    if (stage2ButtonContainer) {
+        if (isSingleEliminationTournament) {
+            stage2ButtonContainer.classList.add('stage2-button-container-hidden');
+        } else {
+            // For Swiss tournaments, show/hide based on completion status
+            checkStage2Eligibility(filteredRounds);
+        }
+    }
+
+    // Check if current data being rendered is Stage 2 OR single elimination tournament
+    const isShowingStage2 = currentViewStage === 2 || (isSingleEliminationTournament && currentViewStage === 1);
+    if (isShowingStage2) {
+        container.classList.add('single-elimination-mode');
+        // Standardize height for alignment: 160px per match in the largest round
+        const maxMatches = Math.max(...filteredRounds.map(r => r.matches.length), 1);
+        container.style.minHeight = (maxMatches * 160 + 100) + 'px';
+    } else {
+        container.classList.remove('single-elimination-mode');
+        container.style.minHeight = '';
+    }
+
+    if (filteredRounds.length === 0) {
+        const isSwissView = !isSingleEliminationTournament && currentViewStage === 1;
+        if (isSwissView) {
+            container.innerHTML = '<div class="alert alert-info text-center w-100">Swiss rounds will appear here once generated. Finish the current round to unlock the next.</div>';
+        } else {
+            container.innerHTML = '<div class="alert alert-light text-center w-100">No rounds found for this stage.</div>';
+        }
+        return;
+    }
+
+    container.innerHTML = filteredRounds.map((round) => {
+        const isSingleElim = round.stage === 2 || (isSingleEliminationTournament && round.stage === 1);
+        const matchesForRound = normalizeMatchesForDisplay(round.matches, isSingleElim);
+
+        if (matchesForRound.length > 1) {
+            matchesForRound.sort((a, b) => {
+                const idA = getNumericMatchId(a?.id);
+                const idB = getNumericMatchId(b?.id);
+                const posA = Number.isFinite(idA) ? (bracketLayout.slotMap.get(idA) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+                const posB = Number.isFinite(idB) ? (bracketLayout.slotMap.get(idB) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+
+                if (posA === posB) {
+                    return (a?.match_number ?? 0) - (b?.match_number ?? 0);
+                }
+                return posA - posB;
+            });
+        }
+
+        let specialIndex = 0;
+
+        return `
+        <div class="bracket-round">
+            <div class="round-header" style="${isSingleElim ? 'position: sticky; top: 0; background: #f8fafc; z-index: 10;' : ''}">
+                <span class="round-title">${isSingleElim ? getRoundLabel(round.round_number, filteredRounds.length) : `Round ${round.round_number}`}</span>
+                <span class="badge-status ${round.status === 'active' ? 'active' : 'scheduled'}">${round.status}</span>
+            </div>
+            <div class="match-list">
+                ${matchesForRound.map((match) => {
+                    const isSpecial = match.match_number >= 90;
+                    const matchCardHtml = renderMatchCard(match, isSingleElim);
+                    const numericId = getNumericMatchId(match.id);
+                    const layoutInfo = Number.isFinite(numericId) ? bracketLayout.layoutMap.get(numericId) : null;
+                    const bracketPosAttr = layoutInfo ? ` data-bracket-slot="${layoutInfo.slot}"` : '';
+                    let gridStyleAttr = '';
+
+                    if (isSingleElim) {
+                        if (layoutInfo) {
+                            gridStyleAttr = ` style="grid-row: ${layoutInfo.rowStart} / span ${layoutInfo.rowSpan};"`;
+                        } else if (isSpecial) {
+                            const specialRowStart = (bracketLayout.maxRows || 0) + 1 + (specialIndex * 2);
+                            gridStyleAttr = ` style="grid-row: ${specialRowStart} / span 2;"`;
+                            specialIndex += 1;
+                        }
+                    }
+
+                    return `
+                        <div class="match-wrapper ${isSpecial ? 'special-match-wrapper' : ''}" 
+                             data-match-id="${match.id}" 
+                             data-round="${round.round_number}" 
+                             data-stage="${round.stage}" 
+                             data-match-number="${match.match_number}" 
+                             data-special="${isSpecial ? '1' : '0'}"${bracketPosAttr}${gridStyleAttr}>
+                            ${matchCardHtml}
+                        </div>
+                    `;
+                }).join('')}
+
+            </div>
+        </div>
+    `;
+    }).join('');
+    
+    // Check if tournament is eligible for Stage 2 transition (only for Swiss tournaments in Stage 1 view)
+    if (currentViewStage === 1 && !isSingleEliminationTournament) {
+        checkStage2Eligibility(allRounds);
+    }
+
+    setupBracketConnectorOverlay(container, filteredRounds);
+    
+    // Scroll to judge's assigned match after rendering
+    scrollToJudgeAssignedMatch();
+}
+
+function filterRoundsForCurrentStage(rounds, stage) {
+    if (!Array.isArray(rounds)) return [];
+
+    if (currentTournament && currentTournament.tournament_type === 'swiss' && stage === 1) {
+        const swissRounds = rounds.filter(r => r.stage === 1);
+        if (swissRounds.length === 0) return [];
+
+        const completed = swissRounds.filter(r => r.status === 'completed');
+        const active = swissRounds.filter(r => r.status === 'active');
+        const latestActive = active.length > 0 ? [active.sort((a, b) => b.round_number - a.round_number)[0]] : [];
+
+        return [...completed, ...latestActive]
+            .sort((a, b) => a.round_number - b.round_number);
+    }
+
+    return rounds.filter(r => r.stage === stage);
+}
+
+function normalizeMatchesForDisplay(matches, isSingleElim) {
+    if (!Array.isArray(matches) || matches.length === 0) return [];
+
+    if (isSingleElim) {
+        return [...matches];
+    }
+
+    return matches.map(match => {
+        if (!match) return match;
+        if (match.is_bye) {
+            return {
+                ...match,
+                status: match.status || 'completed',
+                player2: {
+                    id: null,
+                    name: 'BYE',
+                    score: match.player2?.score ?? 0
+                },
+                winner_id: match.winner_id || match.player1?.id || null
+            };
+        }
+        return match;
+    });
+}
+
+function getNumericMatchId(id) {
+    if (id === null || id === undefined) return NaN;
+    const parsed = parseInt(id, 10);
+    return Number.isNaN(parsed) ? NaN : parsed;
+}
+
+function computeBracketLayout(rounds) {
+    const layoutMap = new Map();
+    const slotMap = new Map();
+    let maxRows = 0;
+    let isElimination = false;
+
+    if (!Array.isArray(rounds) || rounds.length === 0) {
+        return { layoutMap, slotMap, maxRows, isElimination };
+    }
+
+    const relevantRounds = rounds
+        .filter(round => round && Array.isArray(round.matches) && round.matches.some(match => match && match.match_number < 90));
+
+    if (relevantRounds.length === 0) {
+        return { layoutMap, slotMap, maxRows, isElimination };
+    }
+
+    isElimination = true;
+
+    const sortedRounds = [...relevantRounds].sort((a, b) => Number(a.round_number) - Number(b.round_number));
+    const baseRoundNumber = Number(sortedRounds[0].round_number) || 1;
+    let maxRoundNumber = baseRoundNumber;
+
+    const matchMap = new Map();
+    const parentChildren = new Map();
+    const childHasParent = new Map();
+
+    sortedRounds.forEach(round => {
+        const roundNumber = Number(round.round_number) || baseRoundNumber;
+        if (roundNumber > maxRoundNumber) {
+            maxRoundNumber = roundNumber;
+        }
+
+        (round.matches || []).forEach(match => {
+            if (!match || !match.id || match.match_number >= 90) return;
+
+            const matchId = Number(match.id);
+            matchMap.set(matchId, { match, roundNumber });
+
+            if (match.next_match_id) {
+                const parentId = Number(match.next_match_id);
+                const slot = Number(match.next_match_slot) === 2 ? 2 : 1;
+                if (!parentChildren.has(parentId)) {
+                    parentChildren.set(parentId, {});
+                }
+                parentChildren.get(parentId)[slot] = matchId;
+                childHasParent.set(matchId, parentId);
+            }
+        });
+    });
+
+    if (matchMap.size === 0) {
+        return { layoutMap, slotMap, maxRows, isElimination };
+    }
+
+    const totalRounds = Math.max(1, maxRoundNumber - baseRoundNumber + 1);
+    maxRows = 2 ** Math.max(0, totalRounds - 1);
+
+    const roots = Array.from(matchMap.values())
+        .filter(entry => !childHasParent.has(Number(entry.match.id)))
+        .sort((a, b) => {
+            if (a.roundNumber !== b.roundNumber) {
+                return b.roundNumber - a.roundNumber;
+            }
+            return (a.match.match_number ?? 0) - (b.match.match_number ?? 0);
+        });
+
+    const visited = new Set();
+    let nextRootOffset = 0;
+
+    function computeRowSpan(roundNumber) {
+        const relativeIndex = roundNumber - baseRoundNumber;
+        return Math.max(1, 2 ** Math.max(0, relativeIndex));
+    }
+
+    function computeRootSlotSpan(roundNumber) {
+        const relativeIndex = roundNumber - baseRoundNumber;
+        const levelsBelow = totalRounds - 1 - Math.max(0, relativeIndex);
+        return Math.max(1, 2 ** Math.max(0, levelsBelow));
+    }
+
+    function assignMatch(matchId, slot) {
+        if (!matchMap.has(matchId) || visited.has(matchId)) return;
+        visited.add(matchId);
+
+        const { match, roundNumber } = matchMap.get(matchId);
+        const rowSpan = computeRowSpan(roundNumber);
+        const rowStart = slot * rowSpan + 1;
+
+        layoutMap.set(matchId, { slot, rowSpan, rowStart, roundNumber });
+        slotMap.set(matchId, slot);
+        maxRows = Math.max(maxRows, rowStart + rowSpan - 1);
+
+        const children = parentChildren.get(matchId);
+        if (!children) return;
+
+        const baseSlot = slot * 2;
+        if (children[1]) assignMatch(children[1], baseSlot);
+        if (children[2]) assignMatch(children[2], baseSlot + 1);
+    }
+
+    roots.forEach(entry => {
+        const matchId = Number(entry.match.id);
+        const slotSpan = computeRootSlotSpan(entry.roundNumber);
+        const assignedSlot = nextRootOffset;
+        assignMatch(matchId, assignedSlot);
+        nextRootOffset += slotSpan;
+    });
+
+    matchMap.forEach((value, matchId) => {
+        if (!visited.has(matchId)) {
+            assignMatch(matchId, nextRootOffset);
+            nextRootOffset += 1;
+        }
+    });
+
+    return { layoutMap, slotMap, maxRows, isElimination };
+}
+
+function setupBracketConnectorOverlay(container, rounds) {
+    connectorCurrentContainer = container;
+    connectorCurrentRounds = Array.isArray(rounds) ? rounds : [];
+
+    if (!shouldRenderBracketConnectors(connectorCurrentRounds)) {
+        connectorConnectorsEnabled = false;
+        return;
+    }
+
+    connectorConnectorsEnabled = true;
+
+    // Ensure container can anchor absolutely positioned overlay
+    if (window.getComputedStyle(container).position === 'static') {
+        container.style.position = 'relative';
+    }
+
+    if (!connectorOverlayContainer) {
+        connectorOverlayContainer = document.createElement('div');
+        connectorOverlayContainer.className = 'bracket-connector-overlay';
+        connectorOverlayContainer.style.position = 'absolute';
+        connectorOverlayContainer.style.top = '0';
+        connectorOverlayContainer.style.left = '0';
+        connectorOverlayContainer.style.pointerEvents = 'none';
+        connectorOverlayContainer.style.zIndex = '1';
+
+        connectorOverlaySvg = document.createElementNS(SVG_NS, 'svg');
+        connectorOverlaySvg.classList.add('bracket-connector-svg');
+        connectorOverlaySvg.setAttribute('xmlns', SVG_NS);
+        connectorOverlaySvg.setAttribute('fill', 'none');
+        connectorOverlayContainer.appendChild(connectorOverlaySvg);
+    }
+
+    if (!connectorOverlayContainer.parentElement) {
+        container.appendChild(connectorOverlayContainer);
+    }
+
+    // Attach listeners
+    if (!connectorWindowResizeHandler) {
+        connectorWindowResizeHandler = () => scheduleConnectorRedraw();
+        window.addEventListener('resize', connectorWindowResizeHandler);
+    }
+
+    if (connectorScrollListenerAttached && connectorScrollHandler && connectorCurrentContainer !== container) {
+        connectorCurrentContainer.removeEventListener('scroll', connectorScrollHandler);
+        connectorScrollListenerAttached = false;
+    }
+
+    if (!connectorScrollListenerAttached) {
+        connectorScrollHandler = () => scheduleConnectorRedraw();
+        container.addEventListener('scroll', connectorScrollHandler, { passive: true });
+        connectorScrollListenerAttached = true;
+    }
+
+    if (connectorResizeObserver) {
+        connectorResizeObserver.disconnect();
+    }
+    connectorResizeObserver = new ResizeObserver(() => scheduleConnectorRedraw());
+    connectorResizeObserver.observe(container);
+    container.querySelectorAll('.match-card').forEach(card => connectorResizeObserver.observe(card));
+
+    scheduleConnectorRedraw();
+}
+
+function teardownConnectorOverlay() {
+    if (connectorResizeObserver) {
+        connectorResizeObserver.disconnect();
+        connectorResizeObserver = null;
+    }
+
+    if (connectorScrollListenerAttached && connectorScrollHandler && connectorCurrentContainer) {
+        connectorCurrentContainer.removeEventListener('scroll', connectorScrollHandler);
+    }
+    connectorScrollListenerAttached = false;
+    connectorScrollHandler = null;
+
+    if (connectorWindowResizeHandler) {
+        window.removeEventListener('resize', connectorWindowResizeHandler);
+        connectorWindowResizeHandler = null;
+    }
+
+    if (connectorOverlayContainer && connectorOverlayContainer.parentElement) {
+        connectorOverlayContainer.parentElement.removeChild(connectorOverlayContainer);
+    }
+    connectorOverlayContainer = null;
+    connectorOverlaySvg = null;
+
+    connectorCurrentRounds = [];
+    connectorCurrentContainer = null;
+    connectorConnectorsEnabled = false;
+}
+
+function scheduleConnectorRedraw() {
+    if (!connectorConnectorsEnabled || !connectorOverlaySvg) return;
+    if (connectorDrawScheduled) return;
+    connectorDrawScheduled = true;
+    requestAnimationFrame(() => {
+        connectorDrawScheduled = false;
+        drawBracketConnectors();
+    });
+}
+
+function drawBracketConnectors() {
+    if (!connectorConnectorsEnabled || !connectorOverlaySvg || !connectorCurrentContainer) return;
+
+    const container = connectorCurrentContainer;
+    const svg = connectorOverlaySvg;
+
+    const scrollWidth = container.scrollWidth;
+    const scrollHeight = container.scrollHeight;
+    connectorOverlayContainer.style.width = `${scrollWidth}px`;
+    connectorOverlayContainer.style.height = `${scrollHeight}px`;
+
+    svg.setAttribute('width', scrollWidth);
+    svg.setAttribute('height', scrollHeight);
+    svg.setAttribute('viewBox', `0 0 ${scrollWidth} ${scrollHeight}`);
+
+    svg.replaceChildren();
+
+    const containerRect = container.getBoundingClientRect();
+    const scrollX = container.scrollLeft;
+    const scrollY = container.scrollTop;
+
+    const wrapperMap = new Map();
+    container.querySelectorAll('.match-wrapper[data-match-id]').forEach(wrapper => {
+        const id = Number(wrapper.dataset.matchId);
+        if (Number.isFinite(id)) {
+            wrapperMap.set(id, wrapper);
+        }
+    });
+
+    const connections = collectBracketConnections(connectorCurrentRounds);
+
+    connections.forEach(connection => {
+        const sourceWrapper = wrapperMap.get(connection.from);
+        const targetWrapper = wrapperMap.get(connection.to);
+        if (!sourceWrapper || !targetWrapper) return;
+
+        const sourceCard = sourceWrapper.querySelector('.match-card');
+        const targetCard = targetWrapper.querySelector('.match-card');
+        if (!sourceCard || !targetCard) return;
+
+        const sourceRect = sourceCard.getBoundingClientRect();
+        const targetRect = targetCard.getBoundingClientRect();
+
+        const startX = sourceRect.right - containerRect.left + scrollX;
+        const startY = sourceRect.top + (sourceRect.height / 2) - containerRect.top + scrollY;
+        const endX = targetRect.left - containerRect.left + scrollX;
+        const endY = targetRect.top + (targetRect.height / 2) - containerRect.top + scrollY;
+
+        const midX = (startX + endX) / 2;
+
+        const path = document.createElementNS(SVG_NS, 'path');
+        path.setAttribute('d', `M ${startX} ${startY} H ${midX} V ${endY} H ${endX}`);
+        path.setAttribute('class', `bracket-connector-path${connection.type === 'loser' ? ' loser' : ''}`);
+        svg.appendChild(path);
+    });
+}
+
+function collectBracketConnections(rounds) {
+    const connections = [];
+    if (!Array.isArray(rounds)) return connections;
+
+    rounds.forEach(round => {
+        if (!round || !Array.isArray(round.matches)) return;
+
+        round.matches.forEach(match => {
+            const numericId = getNumericMatchId(match?.id);
+            if (!match || !match.id || !Number.isFinite(numericId)) return;
+
+            if (match.next_match_id && Number.isFinite(getNumericMatchId(match.next_match_id))) {
+                connections.push({ from: numericId, to: getNumericMatchId(match.next_match_id), type: 'winner' });
+            }
+
+            if (match.loser_next_match_id && Number.isFinite(getNumericMatchId(match.loser_next_match_id))) {
+                connections.push({ from: numericId, to: getNumericMatchId(match.loser_next_match_id), type: 'loser' });
+            }
+        });
+    });
+
+    return connections;
+}
+
+function shouldRenderBracketConnectors(rounds) {
+    if (!currentTournament) return false;
+    if (!Array.isArray(rounds) || rounds.length === 0) return false;
+
+    const isSingleEliminationTournament = currentTournament.tournament_type === 'single_elimination';
+
+    return rounds.some(round => {
+        if (!round || !Array.isArray(round.matches) || round.matches.length === 0) return false;
+        const stageNumber = Number(round.stage);
+        const isEliminationStage = stageNumber === 2 || (isSingleEliminationTournament && stageNumber === 1);
+        if (!isEliminationStage) return false;
+        return round.matches.some(match => match && (match.next_match_id || match.loser_next_match_id));
+    });
+}
+
+function renderMatchCard(match, isSingleElimStage) {
+    const isCompleted = match.status === 'completed';
+    const isP1Winner = isCompleted && match.winner_id === match.player1.id;
+    const isP2Winner = isCompleted && match.winner_id === match.player2.id;
+    const isBye = Boolean(match.is_bye || match.player2?.id === null);
+
+    const player1Finishes = isCompleted && Array.isArray(match.finishes?.player1) ? match.finishes.player1 : [];
+    const player2Finishes = isCompleted && Array.isArray(match.finishes?.player2) ? match.finishes.player2 : [];
+    const player1BadgeMarkup = player1Finishes.length ? `<span class="finish-badge-list">${renderFinishBadges(player1Finishes)}</span>` : '';
+    const player2BadgeMarkup = player2Finishes.length ? `<span class="finish-badge-list">${renderFinishBadges(player2Finishes)}</span>` : '';
+
+    // Determine if clickable
+    const isJudge = currentUser && match.judge && String(currentUser.id) === String(match.judge.id);
+    const isCreator = currentTournament && currentUser && String(currentTournament.created_by) === String(currentUser.id);
+    const isOrganizer = currentUser && Array.isArray(currentTournamentPeople) && currentTournamentPeople.some(person => {
+        if (!person || String(person.user_id) !== String(currentUser.id)) return false;
+        if (!person.role) return false;
+        return person.role.split(',').some(rolePart => rolePart.trim() === 'organizer');
+    });
+    // Allow scoring if assigned/in-progress OR if completed and user was the judge (Edit Mode)
+    const canScore = !isBye && isJudge && (match.status === 'assigned' || match.status === 'in_progress');
+    // Unified Manual Override: available for non-completed matches (creator/organizer) or completed matches (creator/organizer/judge)
+    const canManualOverride = !isBye && (
+        (!isCompleted && (isCreator || isOrganizer)) || // Admin intervention when no judge available
+        (isCompleted && (isCreator || isOrganizer || isJudge)) // Edit completed matches
+    );
+
+    const headerLabel = getMatchHeaderLabel(match, isSingleElimStage);
+    const player1Score = normalizeScoreDisplay(match.player1?.score, isBye && isCompleted);
+    const player2Score = normalizeScoreDisplay(match.player2?.score, isBye && isCompleted);
+
+    return `
+        <div class="match-card status-${match.status} ${canScore ? 'clickable-card' : ''} ${isJudge && match.status !== 'completed' ? 'judge-assigned-highlight' : ''} ${isBye ? 'match-card-bye' : ''}"
+             onclick="${canScore ? `promptMatchScore(${match.id}, '${escapeHtml(match.player1.name)}', '${escapeHtml(match.player2.name)}', ${match.player1.score}, ${match.player2.score})` : ''}">
+            ${canManualOverride ? `
+                <button type="button" class="match-ellipsis-btn" onclick="event.stopPropagation(); toggleManualOverride(${match.id})" title="${isCompleted ? 'Edit Match Result' : 'Manual Override'}">
+                    <i class="bi bi-three-dots-vertical"></i>
+                </button>
+            ` : ''}
+            <div class="match-header" style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #64748b; margin-bottom: 0.5rem;">
+                <span>${headerLabel}</span>
+                <span class="badge-status ${match.status}">${match.status}</span>
+            </div>
+            <div class="player-vs">
+                <div class="player-row ${isP1Winner ? 'winner' : (isP2Winner ? 'loser' : '')}">
+                    <span class="player-name">${escapeHtml(match.player1.name)}</span>
+                    <div class="player-meta">
+                        <span class="match-score font-monospace fw-bold">${player1Score}</span>
+                        ${isP1Winner ? '<i class="bi bi-trophy-fill text-warning match-trophy"></i>' : ''}
+                        ${!isP1Winner && player1BadgeMarkup ? '<span class="finish-separator">|</span>' : ''}
+                        ${player1BadgeMarkup}
+                    </div>
+                </div>
+                <div class="player-row ${isP2Winner ? 'winner' : (isP1Winner ? 'loser' : '')}">
+                    <span class="player-name">${escapeHtml(match.player2.name)}</span>
+                    <div class="player-meta">
+                        <span class="match-score font-monospace fw-bold">${player2Score}</span>
+                        ${!isP2Winner && player2BadgeMarkup ? '<span class="finish-separator">|</span>' : ''}
+                        ${isP2Winner ? '<i class="bi bi-trophy-fill text-warning match-trophy"></i>' : ''}
+                        ${player2BadgeMarkup}
+                    </div>
+                    ${isBye && match.player2.name !== 'TBD' ? '<span class="text-muted player-bye ms-2">(BYE)</span>' : ''}
+                </div>
+            </div>
+            
+            ${match.judge || match.stadium ? `
+                <div class="assignment-info">
+                    ${match.judge ? `<div><i class="bi bi-person-badge"></i> ${escapeHtml(match.judge.name)}</div>` : ''}
+                    ${match.stadium ? `<div><i class="bi bi-geo-alt"></i> ${escapeHtml(match.stadium.name)}</div>` : ''}
+                </div>
+            ` : ''}
+
+            ${match.blocked_reason ? `
+                <div class="alert alert-warning py-1 px-2 mt-2 mb-0" style="font-size: 0.75rem; border-radius: 8px;">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i> ${escapeHtml(match.blocked_reason)}
+                </div>
+            ` : ''}
+
+            ${match.status === 'completed' ? `
+                <div class="text-center text-muted small mt-2">
+                    <i class="bi bi-check-circle-fill text-success me-1"></i> Match Completed
+                </div>
+            ` : (canScore ? `
+                <div class="text-center text-muted small mt-2">
+                    <i class="bi bi-hand-index-thumb me-1"></i> Tap card to score
+                </div>
+            ` : (!isBye ? `
+                <div class="text-center text-muted small mt-2">
+                    <i class="bi bi-shield-lock me-1"></i> Judge Only
+                </div>
+            ` : ''))}
+
+            ${canManualOverride ? `
+                <div class="manual-override-container" id="manual-override-${match.id}">
+                    <div class="text-center mt-2">
+                        <button type="button" class="btn btn-sm btn-outline-warning" 
+                            onclick="event.stopPropagation(); handleManualOverride(${match.id}, '${escapeHtml(match.player1.name)}', '${escapeHtml(match.player2.name)}');">
+                            <i class="bi bi-exclamation-triangle me-1"></i> Manual Override
+                        </button>
+                    </div>
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
+async function toggleManualOverride(matchId) {
+    const match = allRounds.flatMap(r => r.matches || []).find(m => m.id === matchId);
+    if (!match) return;
+
+    if (match.status === 'completed') {
+        // Show confirmation before editing completed match
+        const confirmed = await showConfirmation({
+            title: 'Edit Completed Match',
+            message: `This match is already completed with a score of ${match.player1.score}-${match.player2.score}. Editing will modify the recorded results and this action will be logged. Continue?`,
+            confirmText: 'Edit Match',
+            confirmVariant: 'warning'
+        });
+
+        if (!confirmed) return;
+
+        // Edit completed match result
+        promptMatchScore(matchId, match.player1.name, match.player2.name, match.player1.score, match.player2.score);
+    } else {
+        // Manual override for non-completed match (no judge available scenario)
+        handleManualOverride(matchId, match.player1.name, match.player2.name);
+    }
+}
+
+const FINISH_BADGE_MAP = {
+    'Spin Finish': {
+        label: 'Spin',
+        className: 'finish-badge-spin',
+        icon: 'bi bi-wind',
+        tooltip: 'Spin Finish'
+    },
+    'Burst Finish': {
+        label: 'Burst',
+        className: 'finish-badge-burst',
+        icon: 'bi bi-lightning-charge-fill',
+        tooltip: 'Burst Finish'
+    },
+    'Over Finish': {
+        label: 'Over',
+        className: 'finish-badge-over',
+        icon: 'bi bi-arrow-up-right-circle-fill',
+        tooltip: 'Over Finish'
+    },
+    'Xtreme Finish': {
+        label: 'Xtreme',
+        className: 'finish-badge-xtreme',
+        icon: 'bi bi-stars',
+        tooltip: 'Xtreme Finish'
+    }
+};
+
+function renderFinishBadges(finishes) {
+    if (!Array.isArray(finishes) || finishes.length === 0) {
+        return '';
+    }
+
+    
+    const aggregated = [];
+    const map = new Map();
+
+    finishes.forEach((finish, index) => {
+        if (!finish || !finish.type) {
+            return;
+        }
+
+        // Group by type only, not by points
+        const key = finish.type;
+
+        if (!map.has(key)) {
+            const entry = {
+                type: finish.type,
+                count: 1,
+                order: index
+            };
+            map.set(key, entry);
+            aggregated.push(entry);
+        } else {
+            map.get(key).count += 1;
+        }
+    });
+
+    
+    aggregated.sort((a, b) => a.order - b.order);
+
+    return aggregated.map(entry => {
+        const config = FINISH_BADGE_MAP[entry.type] || {
+            label: entry.type || 'Finish',
+            className: 'finish-badge-default',
+            icon: 'bi bi-flag',
+            tooltip: entry.type || 'Finish'
+        };
+
+        const titleParts = [config.tooltip];
+        if (entry.count > 1) {
+            titleParts.push(`×${entry.count}`);
+        }
+
+        const title = escapeHtml(titleParts.join(' | '));
+        const label = escapeHtml(config.label);
+        const iconHtml = config.icon ? `<i class="${config.icon}"></i>` : '';
+        const countHtml = entry.count > 1 ? `<span class="finish-count">×${entry.count}</span>` : '';
+
+        return `
+            <span class="badge finish-badge ${config.className}" title="${title}">
+                ${iconHtml}<span class="finish-label">${label}</span>${countHtml}
+            </span>
+        `;
+    }).join('');
+}
+
+async function runMatchEngine() {
+    try {
+        const response = await fetch('api/tournaments/match_engine.php?action=run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ tournament_id: currentTournamentId })
+        });
+        const result = await response.json();
+        if (result.success) {
+            const count = result.assignments?.length || 0;
+            if (count > 0) {
+                showToast(`Match engine assigned ${count} match(es) successfully.`, { variant: 'success' });
+            } else {
+                showToast('No new assignments possible with current staff/stadiums.', { variant: 'info' });
+            }
+            refreshPageData();
+        } else {
+            showToast(result.message, { variant: 'danger' });
+        }
+    } catch (error) {
+        showToast('Failed to run match engine.', { variant: 'danger' });
+    }
+}
+
+async function promptMatchScore(matchId, p1Name, p2Name, currentP1 = 0, currentP2 = 0) {
+    // Check if this is an edit of an existing match
+    const match = allRounds.flatMap(r => r.matches || []).find(m => m.id === matchId);
+    let existingData = null;
+
+    if (match && match.status === 'completed') {
+        // Edit mode: preload existing scores and finishes
+        existingData = {
+            p1Score: match.player1.score || 0,
+            p2Score: match.player2.score || 0,
+            finishes: []
+        };
+
+        // Reconstruct finishes from match data
+        if (match.finishes) {
+            // Combine player1 and player2 finishes into the moves array format
+            if (Array.isArray(match.finishes.player1)) {
+                existingData.finishes.push(...match.finishes.player1.map(f => ({
+                    player: 'p1',
+                    type: f.type,
+                    points: f.points
+                })));
+            }
+            if (Array.isArray(match.finishes.player2)) {
+                existingData.finishes.push(...match.finishes.player2.map(f => ({
+                    player: 'p2',
+                    type: f.type,
+                    points: f.points
+                })));
+            }
+        }
+    }
+
+    const scores = await showScoringModal(p1Name, p2Name, existingData);
+    if (!scores) return; // Cancelled
+
+    recordMatchResult(matchId, scores.p1, scores.p2, scores.finishes);
+}
+
+async function handleManualOverride(matchId, p1Name, p2Name) {
+    const confirmed = await showConfirmation({
+        title: 'Manual Judge Override',
+        message: 'This will allow you to score the match even if you are assigned as a player. Continue?',
+        confirmText: 'Override & Score',
+        confirmVariant: 'warning'
+    });
+
+    if (!confirmed) return;
+
+    promptMatchScore(matchId, p1Name, p2Name);
+}
+
+async function recordMatchResult(matchId, p1Score, p2Score, finishes = []) {
+    
+    // Sanitize finishes but preserve all occurrences (no deduplication)
+    const sanitizedFinishes = Array.isArray(finishes) ? finishes.filter(finish => {
+        return finish && finish.player && finish.type;
+    }).map(finish => ({
+        player: finish.player,
+        type: finish.type,
+        points: Number.isFinite(Number(finish.points)) ? Number(finish.points) : null
+    })) : [];
+
+    try {
+        const response = await fetch('api/tournaments/rounds.php?action=recordResult', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                tournament_id: currentTournamentId,
+                match_id: matchId,
+                p1_score: p1Score,
+                p2_score: p2Score,
+                finishes: JSON.stringify(sanitizedFinishes)
+            })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast('Result recorded.', { variant: 'success' });
+            refreshPageData();
+        } else {
+            showToast(result.message, { variant: 'danger' });
+        }
+    } catch (error) {
+        showToast('Failed to record result.', { variant: 'danger' });
+    }
+}
+
+function getRoundLabel(roundNum, totalRounds) {
+    const remaining = totalRounds - roundNum;
+    if (remaining === 0) return 'Finals';
+    if (remaining === 1) return 'Semi-Finals';
+    if (remaining === 2) return 'Quarter-Finals';
+    return `Round ${roundNum}`;
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// Check if tournament is eligible for Stage 2 transition
+function userCanManageStage2() {
+    if (!currentTournament || !currentUser) return false;
+
+    const isCreator = String(currentTournament.created_by) === String(currentUser.id);
+    if (isCreator) return true;
+
+    return currentTournamentPeople.some(person => {
+        if (String(person.user_id) !== String(currentUser.id)) return false;
+        return person.role.split(',').some(role => role.trim() === 'organizer');
+    });
+}
+
+// Shared function to determine if Swiss rounds are complete (used by both button and standings)
+function isSwissRoundsComplete(rounds) {
+    if (!currentTournament) return false;
+    
+    // Only for Swiss tournaments
+    if (currentTournament.tournament_type !== 'swiss') return false;
+    
+    // Check if already in stage 2
+    if (currentTournament.current_stage === 2) return false;
+    
+    // Check if all rounds are complete
+    if (!rounds || rounds.length === 0) return false;
+    
+    return rounds.every(round => {
+        // Round must be completed
+        if (round.status !== 'completed') return false;
+
+        // All matches in round must be completed
+        if (round.matches && round.matches.length > 0) {
+            return round.matches.every(match => match.status === 'completed');
+        }
+
+        return true;
+    });
+}
+
+function checkStage2Eligibility(rounds) {
+    const stage2Container = document.getElementById('stage2ButtonContainer');
+    if (!stage2Container) return;
+
+    if (!userCanManageStage2()) {
+        stage2Container.classList.add('stage2-button-container-hidden');
+        stage2Container.classList.remove('stage2-button-container-visible');
+        return;
+    }
+
+    if (!currentTournament) return;
+
+    const topCutSelect = document.getElementById('topCutSelect');
+    if (topCutSelect && currentTournament.top_cut > 0) {
+        topCutSelect.value = currentTournament.top_cut;
+    }
+
+    // Use shared function to check if Swiss rounds are complete
+    const swissComplete = isSwissRoundsComplete(rounds);
+    
+    // Show button if all conditions met
+    if (swissComplete) {
+        stage2Container.classList.remove('stage2-button-container-hidden');
+        stage2Container.classList.add('stage2-button-container-visible');
+    } else {
+        stage2Container.classList.add('stage2-button-container-hidden');
+        stage2Container.classList.remove('stage2-button-container-visible');
+    }
+}
+
+// Advance to Top Cut (Stage 2)
+async function advanceToTopCut() {
+    const topCutSelect = document.getElementById('topCutSelect');
+    const topCutValue = topCutSelect ? parseInt(topCutSelect.value) : (currentTournament.top_cut || 8);
+
+    const confirmed = await showConfirmation({
+        title: 'Advance to Top Cut',
+        message: `This will generate a single elimination bracket for the top ${topCutValue} players based on current standings. All Swiss rounds must be complete. Continue?`,
+        confirmText: 'Generate Bracket',
+        confirmVariant: 'primary'
+    });
+
+    if (!confirmed) return;
+
+    try {
+        // First save the top cut to ensure it's in the database
+        await fetch('api/tournaments/rounds.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                action: 'saveTopCut',
+                tournament_id: currentTournamentId,
+                top_cut: topCutValue
+            })
+        });
+
+        const response = await fetch('api/tournaments/rounds.php?action=advanceToTopCut', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ tournament_id: currentTournamentId })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast(result.message, { variant: 'success' });
+            // Refresh to show new bracket
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+        } else {
+            showToast(result.message, { variant: 'danger' });
+        }
+    } catch (error) {
+        console.error('Advance to top cut error:', error);
+        showToast('Failed to generate top cut bracket.', { variant: 'danger' });
+    }
+}
+
+// Switch Stage View
+function switchStage(stage) {
+    currentViewStage = stage;
+    renderRounds(allRounds);
+}
+
+// Scroll to judge's assigned match
+function scrollToJudgeAssignedMatch() {
+    if (!currentUser) return;
+    
+    // Find the judge's assigned match card
+    const assignedMatch = document.querySelector('.match-card.judge-assigned-highlight');
+    if (!assignedMatch) return;
+    
+    // Get the rounds container for scrolling
+    const roundsContainer = document.getElementById('roundsContainer');
+    if (!roundsContainer) return;
+    
+    // Use smooth scroll to bring the match into view
+    assignedMatch.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center', // Center vertically
+        inline: 'center'  // Center horizontally
+    });
+}
+
+window.refreshPageData = refreshPageData;
+window.recordMatchResult = recordMatchResult;
+window.runMatchEngine = runMatchEngine;
+window.advanceToTopCut = advanceToTopCut;
+window.handleManualOverride = handleManualOverride;
+window.switchStage = switchStage;
+
+async function handleLogout(e) {
+    if (e) e.preventDefault();
+    try {
+        await fetch('api/auth/logout.php', { method: 'POST' });
+        window.location.href = 'index.html';
+    } catch (error) {
+        console.error('Logout failed:', error);
+        window.location.href = 'index.html';
+    }
+}
