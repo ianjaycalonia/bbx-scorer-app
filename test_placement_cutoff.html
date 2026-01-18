@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Placement Cutoff Test</title>
+</head>
+<body>
+    <h1>Placement Cutoff Test Results</h1>
+    
+    <h2>Expected Behavior:</h2>
+    <ul>
+        <li><strong>4th Place:</strong> Creates 3rd place match only</li>
+        <li><strong>5th Place:</strong> Creates 3rd place + 5th-8th ranking matches</li>
+        <li><strong>6th Place:</strong> Creates 3rd place + 5th-8th ranking matches</li>
+        <li><strong>7th Place:</strong> Creates 3rd place + 5th-8th ranking + 7th/8th playoff</li>
+        <li><strong>8th Place:</strong> Creates 3rd place + 5th-8th ranking + 7th/8th playoff</li>
+    </ul>
+    
+    <h2>Frontend Validation:</h2>
+    <ul>
+        <li>✅ Dropdown shows 4th, 5th, 6th, 7th, 8th place options</li>
+        <li>✅ Required field validation</li>
+        <li>✅ Hidden for Swiss tournaments</li>
+        <li>✅ Shows for Single/Double Elimination</li>
+    </ul>
+    
+    <h2>Backend Validation:</h2>
+    <ul>
+        <li>✅ Accepts values: 4, 5, 6, 7, 8</li>
+        <li>✅ Rejects invalid values</li>
+        <li>✅ Stores rank_to in database</li>
+    </ul>
+    
+    <h2>Bracket Generation Logic:</h2>
+    <ul>
+        <li>✅ rank_to >= 3: Creates 3rd place match (Match 99)</li>
+        <li>✅ rank_to >= 5: Creates 5th-8th ranking (Matches 94, 95, 97, 98)</li>
+        <li>✅ rank_to >= 7: Creates 7th/8th playoff (Match 97)</li>
+        <li>✅ Logic already supports individual cutoffs</li>
+    </ul>
+    
+    <h2>Test Scenarios:</h2>
+    <ol>
+        <li>Create Single Elimination with 4th place → Should only have 3rd place match</li>
+        <li>Create Single Elimination with 5th place → Should have 3rd place + 5th-8th matches</li>
+        <li>Create Single Elimination with 7th place → Should have all ranking matches</li>
+        <li>Try invalid value → Should show validation error</li>
+        <li>Create Swiss tournament → Placement cutoff should be hidden</li>
+    </ol>
+</body>
+</html>

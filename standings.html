@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tournament Standings - Blader App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <style>
+        .rank-cell {
+            font-weight: 800;
+            color: var(--primary-color);
+            width: 60px;
+        }
+
+        .score-badge {
+            font-weight: 700;
+            padding: 0.25rem 0.75rem;
+            border-radius: 8px;
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--primary-color);
+        }
+
+        .buchholz-cell {
+            font-family: monospace;
+            font-weight: 600;
+            color: #6366f1;
+        }
+
+        .player-avatar {
+            width: 32px;
+            height: 32px;
+            background: #f1f5f9;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.8rem;
+            margin-right: 12px;
+        }
+    </style>
+</head>
+
+<body class="bg-light">
+    <div class="container mobile-container py-4">
+        <div class="card border-0 shadow-sm overflow-hidden">
+            <div class="card-header bg-primary text-white p-4 border-0">
+                <div class="d-flex align-items-center gap-3 mb-2">
+                    <a href="javascript:history.back()" class="btn btn-primary btn-sm rounded-pill border-white">
+                        <i class="bi bi-arrow-left"></i>
+                    </a>
+                    <h1 class="h4 fw-bold mb-0 text-truncate" id="tournamentName">Loading Standings...</h1>
+                </div>
+                <p class="mb-0 small opacity-75" id="tournamentMeta">Swiss Format · Official Rankings</p>
+            </div>
+
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0" id="standingsTable">
+                        <thead class="bg-light">
+                            <tr>
+                                <th class="ps-4">Rank</th>
+                                <th>Player</th>
+                                <th class="text-center">Pts</th>
+                                <th class="text-center">SOS</th>
+                                <th class="text-center">W-L-D</th>
+                                <th class="text-center pe-4">Seed</th>
+                            </tr>
+                        </thead>
+                        <tbody id="standingsList" class="border-top-0">
+                            <!-- Content loaded by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/ui_feedback.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const tournamentId = urlParams.get('id');
+
+            if (!tournamentId) {
+                showError('Invalid Tournament ID');
+                return;
+            }
+
+            try {
+                // Fetch Details first for metadata
+                const detailResponse = await fetch(`api/tournaments/create.php?action=getDetails&id=${tournamentId}`);
+                const detail = await detailResponse.json();
+                if (detail.success) {
+                    document.getElementById('tournamentName').textContent = detail.tournament.name;
+                    document.getElementById('tournamentMeta').textContent = `${getTournamentTypeLabel(detail.tournament.tournament_type)} · ${detail.tournament.stadiums.length} Stadiums`;
+                }
+
+                // Fetch Standings
+                const response = await fetch(`api/tournaments/rounds.php?action=getStandings&tournament_id=${tournamentId}`);
+                const result = await response.json();
+
+                if (result.success) {
+                    renderStandings(result.standings);
+                } else {
+                    showError(result.message);
+                }
+            } catch (error) {
+                console.error('Error fetching standings:', error);
+                showError('Failed to load standings data.');
+            }
+        });
+
+        function renderStandings(standings) {
+            const list = document.getElementById('standingsList');
+            if (standings.length === 0) {
+                list.innerHTML = '<tr><td colspan="6" class="text-center py-5 text-muted">No results recorded yet. Standings will appear as matches complete.</td></tr>';
+                return;
+            }
+
+            list.innerHTML = standings.map((s, index) => `
+                <tr>
+                    <td class="ps-4 rank-cell">#${index + 1}</td>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <div class="player-avatar">${s.name.charAt(0).toUpperCase()}</div>
+                            <div class="fw-bold">${s.name}</div>
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        <span class="score-badge">${s.points}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="buchholz-cell">${s.buchholz}</span>
+                    </td>
+                    <td class="text-center small text-muted">
+                        ${s.wins}W - ${s.losses}L - ${s.draws}D
+                    </td>
+                    <td class="text-center pe-4 text-muted small">
+                        ${s.seed}
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function getTournamentTypeLabel(type) {
+            switch (type) {
+                case 'swiss': return 'Swiss Format';
+                case 'single_elimination': return 'Single Elimination';
+                case 'double_elimination': return 'Double Elimination';
+                default: return 'Tournament';
+            }
+        }
+    </script>
+</body>
+
+</html>

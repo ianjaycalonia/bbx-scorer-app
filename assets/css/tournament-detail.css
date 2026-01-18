@@ -1,0 +1,221 @@
+.person-card {
+    background: #fff;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Role Badge Styles */
+.person-roles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.role-badge.organizer {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+    color: #ffffff !important;
+    border: 1px solid #d97706 !important;
+    box-shadow: 0 1px 2px rgba(217, 119, 6, 0.3);
+}
+
+.role-badge.player {
+    background: #3b82f6 !important;
+    color: #ffffff !important;
+    border: 1px solid #2563eb !important;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.3);
+}
+
+.role-badge.judge {
+    background: #10b981 !important;
+    color: #ffffff !important;
+    border: 1px solid #059669 !important;
+    box-shadow: 0 1px 2px rgba(5, 150, 105, 0.3);
+}
+
+/* Checkbox Styling */
+.form-check-input {
+    width: 1.25rem !important;
+    height: 1.25rem !important;
+    border-radius: 0.25rem !important;
+    border: 2px solid #6b7280 !important;
+    background-color: #ffffff !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease-in-out !important;
+    margin-top: 0.125rem !important;
+}
+
+.form-check-input:checked {
+    background-color: #3b82f6 !important;
+    border-color: #3b82f6 !important;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10l3 3l6-6'/%3e%3c/svg%3e") !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
+    background-size: 0.75rem !important;
+}
+
+.form-check-input:focus {
+    border-color: #3b82f6 !important;
+    outline: 0 !important;
+    box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25) !important;
+}
+
+.form-check-input:hover:not(:checked) {
+    border-color: #9ca3af !important;
+    background-color: #f9fafb !important;
+}
+
+.form-check {
+    padding-left: 2rem !important;
+    margin-bottom: 0.75rem !important;
+}
+
+.form-check-label {
+    padding-left: 0.5rem !important;
+    cursor: pointer !important;
+    user-select: none !important;
+}
+
+.tournament-status-badge {
+    display: inline-block !important;
+    padding: 0.5rem 1rem !important;
+    font-weight: 600 !important;
+    font-size: 0.875rem !important;
+    border-radius: 9999px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.025em !important;
+}
+
+.tournament-status-badge.upcoming {
+    background: #e0f2fe !important;
+    color: #0369a1 !important;
+    border: 1px solid #0ea5e9 !important;
+}
+
+.tournament-status-badge.registration {
+    background: #f3f4f6 !important;
+    color: #374151 !important;
+    border: 1px solid #9ca3af !important;
+}
+
+.tournament-status-badge.ongoing {
+    background: #fef3c7 !important;
+    color: #92400e !important;
+    border: 1px solid #f59e0b !important;
+}
+
+.tournament-status-badge.completed {
+    background: #dcfce7 !important;
+    color: #166534 !important;
+    border: 1px solid #22c55e !important;
+}
+
+.tournament-status-badge.cancelled {
+    background: #fef2f2 !important;
+    color: #991b1b !important;
+    border: 1px solid #ef4444 !important;
+}
+
+.podium-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.main-podium {
+    width: 100%;
+    justify-content: center;
+}
+
+.swiss-king-podium {
+    width: 100%;
+}
+
+.podium-divider {
+    display: none;
+    width: 1px;
+    background: linear-gradient(to bottom, transparent, #d1d5db, transparent);
+    align-self: center;
+    min-height: 120px;
+}
+
+@media (min-width: 768px) {
+    .podium-container {
+        flex-direction: row;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 2rem;
+    }
+
+    .main-podium,
+    .swiss-king-podium {
+        width: auto;
+    }
+
+    .podium-divider {
+        display: block;
+    }
+}
+
+.podium-item-sm {
+    width: 100px;
+}
+
+.podium-item-lg {
+    width: 130px;
+}
+
+.podium-item-raised {
+    transform: translateY(-10px);
+}
+
+.podium-avatar-sm {
+    width: 50px;
+    height: 50px;
+    font-size: 1.2rem;
+}
+
+.podium-avatar-lg {
+    width: 70px;
+    height: 70px;
+    font-size: 1.8rem;
+    border: 4px solid #fff;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.podium-avatar-bronze {
+    background: #cd7f32 !important;
+}
+
+.badge-xs {
+    font-size: 0.7rem;
+}
+
+.badge-sm {
+    font-size: 0.8rem;
+}
+
+.badge-bronze {
+    background: #cd7f32 !important;
+}
+
+.is-hidden {
+    display: none !important;
+}

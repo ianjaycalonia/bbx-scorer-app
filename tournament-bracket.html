@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tournament Bracket - Blader Tournament System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/tournament-bracket.css" rel="stylesheet">
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand py-0" href="dashboard.html">
+                <img src="assets/images/ab_logo.png" alt="AB Logo" class="app-logo">
+            </a>
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse"
+                data-bs-target="#dashboardNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="dashboardNav">
+                <div class="navbar-nav ms-auto gap-2">
+                    <a class="nav-link" href="dashboard.html">
+                        <i class="bi bi-house me-1"></i> Dashboard
+                    </a>
+                    <a class="nav-link" href="tournaments.html">
+                        <i class="bi bi-trophy me-1"></i> Tournaments
+                    </a>
+                    <a class="nav-link" href="settings.html">
+                        <i class="bi bi-gear me-1"></i> Settings
+                    </a>
+                    <hr class="d-lg-none text-white-50 my-2">
+                    <a class="nav-link text-danger" href="#" id="logoutBtn">
+                        <i class="bi bi-box-arrow-right me-1"></i> Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="bracket-page-container">
+        <div class="container-fluid px-4">
+            <div class="card border-0 shadow-sm mt-3 mb-3">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-column gap-3">
+                        <div class="d-flex align-items-center gap-2">
+                            <a href="#" id="backBtn" class="btn btn-light btn-sm rounded-pill">
+                                <i class="bi bi-arrow-left"></i>
+                            </a>
+                            <h1 id="tournamentName" class="h4 fw-bold mb-0 text-truncate">Tournament Details</h1>
+                        </div>
+
+                        <div id="stage2ButtonContainer" class="alert alert-info mb-0 stage2-button-container-hidden single-elimination-hidden">
+                            <div
+                                class="d-flex flex-column flex-md-row align-items-center justify-content-between gap-3 text-center text-md-start">
+                                <div>
+                                    <i class="bi bi-trophy-fill me-2"></i>
+                                    <strong>Swiss Rounds Complete!</strong>
+                                    <p class="mb-0 mt-1">All matches have been scored. Select top cut size to advance.
+                                    </p>
+                                </div>
+                                <div class="d-flex flex-column flex-sm-row align-items-center gap-2 w-100 w-md-auto stage-progress-actions">
+                                    <div class="input-group w-100 w-sm-auto input-group-min-width">
+                                        <span class="input-group-text bg-white border-end-0">Top</span>
+                                        <input type="number" id="topCutSelect" class="form-control border-start-0 ps-0"
+                                            min="2" step="2" value="16" readonly tabindex="-1">
+                                    </div>
+                                    <button id="proceedToStage2Btn" class="btn btn-primary btn-lg w-100 w-sm-auto"
+                                        onclick="advanceToTopCut()">
+                                        <i class="bi bi-arrow-right-circle me-2"></i>Proceed to Stage 2
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabs Navigation -->
+            <ul class="nav nav-pills bg-white p-1 rounded-pill shadow-sm mb-3 justify-content-center gap-3 d-inline-flex position-relative start-50 translate-middle-x"
+                id="tournamentTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active rounded-pill fw-bold px-4" id="bracket-tab" data-bs-toggle="tab"
+                        data-bs-target="#bracket-pane" type="button" role="tab">
+                        <i class="bi bi-diagram-3 me-1"></i>Bracket
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link rounded-pill fw-bold px-4" id="standings-tab" data-bs-toggle="tab"
+                        data-bs-target="#standings-pane" type="button" role="tab">
+                        <i class="bi bi-trophy me-1"></i>Standings
+                    </button>
+                </li>
+            </ul>
+
+            <!-- Tabs Content -->
+            <div class="tab-content" id="tournamentTabsContent">
+                <!-- Bracket Pane -->
+                <div class="tab-pane fade show active" id="bracket-pane" role="tabpanel" aria-labelledby="bracket-tab">
+                    <!-- Stage Switcher Tabs (Hidden by default, shown if multi-stage) -->
+                    <div id="stageTabsContainer" class="d-flex justify-content-center mb-3 stage-tabs-container-hidden">
+                        <div class="btn-group btn-group-sm p-1 bg-light rounded-pill border">
+                            <input type="radio" class="btn-check" name="stage-tab" id="stage1Tab" checked
+                                onchange="switchStage(1)">
+                            <label class="btn btn-outline-primary rounded-pill px-4 border-0" for="stage1Tab">
+                                <i class="bi bi-grid-3x3-gap me-1"></i>Swiss
+                            </label>
+
+                            <input type="radio" class="btn-check" name="stage-tab" id="stage2Tab"
+                                onchange="switchStage(2)">
+                            <label class="btn btn-outline-primary rounded-pill px-4 border-0" for="stage2Tab">
+                                <i class="bi bi-diagram-3 me-1"></i>Top Cut
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="roundsContainer" class="rounds-container">
+                        <div class="text-center w-100 p-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Standings Pane -->
+                <div class="tab-pane fade" id="standings-pane" role="tabpanel" aria-labelledby="standings-tab">
+                    <div class="standings-container">
+                        <div class="table-responsive">
+                            <table class="table" id="standingsTable">
+                                <thead>
+                                    <tr>
+                                        <th class="text-center rank-cell-width">#</th>
+                                        <th>Player</th>
+                                        <th class="text-center">W-L</th>
+                                        <th class="text-center">
+                                            BP
+                                            <i class="bi bi-question-circle-fill text-muted ms-1 tooltip-icon"
+                                                data-bs-toggle="tooltip"
+                                                data-bs-placement="top" data-bs-trigger="click"
+                                                title="Bey Points: Total points scored in all matches (Burst=2, Over=2, Xtreme=3)"></i>
+                                        </th>
+                                        <th class="text-center">
+                                            STR
+                                            <i class="bi bi-question-circle-fill text-muted ms-1 tooltip-icon"
+                                                data-bs-toggle="tooltip"
+                                                data-bs-placement="top" data-bs-trigger="click"
+                                                title="Strength Metric: (OMPA × 2) + (Opponent Win Rate × 5). Measures opponent strength and their success"></i>
+                                        </th>
+                                        <th class="text-center">
+                                            FQI
+                                            <i class="bi bi-question-circle-fill text-muted ms-1 tooltip-icon"
+                                                data-bs-toggle="tooltip"
+                                                data-bs-placement="top" data-bs-trigger="click"
+                                                title="Finish Quality Index: % of finishes that are Xtreme/Burst/Over"></i>
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody id="standingsList">
+                                    <tr>
+                                        <td colspan="6" class="text-center py-5">
+                                            <div class="spinner-border text-primary spinner-border-sm me-2"
+                                                role="status"></div>
+                                            Loading standings...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/ui_feedback.js"></script>
+    <script src="assets/js/tournament-bracket.js"></script>
+    <script>
+        // Initialize tooltips for help icons
+        document.addEventListener('DOMContentLoaded', function () {
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+</body>
+
+</html>
