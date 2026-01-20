@@ -479,7 +479,7 @@ h5 {
 .judge-assigned-highlight::before {
     content: "⚡ YOUR MATCH";
     position: absolute;
-    top: -35px;
+    top: -45px;
     left: 50%;
     transform: translateX(-50%);
     background: linear-gradient(120deg, #fde047, #f97316);
@@ -531,18 +531,38 @@ h5 {
 
 .match-card .player-row {
     display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+    min-width: 0;
+}
+
+.match-card .player-topline {
+    display: flex;
     align-items: center;
+    width: 100%;
     gap: 0.75rem;
 }
 
 .match-card .player-name {
     font-weight: 600;
+    flex-shrink: 0;
+    min-width: fit-content;
 }
 
 .match-card .player-meta {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.match-card .player-finishes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    width: 100%;
 }
 
 .match-card .match-trophy {
@@ -597,6 +617,43 @@ h5 {
 .match-card .finish-badge .finish-points {
     color: inherit;
     opacity: 0.85;
+}
+
+/* Compact mode for finish badges when overflowing */
+.match-card .finish-badge-list-compact .finish-label {
+    display: none;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.3s ease;
+}
+
+.match-card .finish-badge-list-compact .finish-badge {
+    padding: 0.2rem 0.3rem;
+    min-width: auto;
+    gap: 0.15rem;
+    font-size: 0.7rem;
+    transition: all 0.3s ease;
+}
+
+.match-card .finish-badge-list-compact .finish-badge i {
+    font-size: 0.9rem;
+    margin-right: 0;
+    transition: all 0.3s ease;
+}
+
+.match-card .finish-badge-list-compact .finish-count {
+    margin-left: 0.1rem;
+    font-size: 0.65rem;
+    transition: all 0.3s ease;
+}
+
+/* Prevent twitching with smooth transitions */
+.match-card .finish-badge-list {
+    transition: all 0.3s ease;
+}
+
+.match-card .finish-badge {
+    transition: all 0.3s ease;
 }
 
 .finish-badge-spin {

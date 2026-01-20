@@ -9,6 +9,14 @@ class MatchEngine {
     private $conn;
     private $tournamentId;
     private $stageMaxRounds = [];
+    private $tournamentSeed;
+    private $judgeOrderCache;
+    private $judgeOrderPositions = [];
+    private $judgeBindings = [];
+    private $judgeBindingsInitialized = false;
+    private $floatingJudges = [];
+    private $homeStadiumByJudge = [];
+    private $roundByeCache = [];
 
     public function __construct($database, $tournamentId) {
         if ($database instanceof mysqli) {
@@ -27,71 +35,54 @@ class MatchEngine {
         $this->conn->begin_transaction();
         try {
             $assignments = [];
-            $usedMatches = [];
-            
-            // Rule 2.1: Get all available stadiums first
+
             $stadiums = $this->getAllAvailableStadiums();
+            $this->initializeJudgeBindings($stadiums);
+
+            if (empty($stadiums)) {
+                $this->conn->commit();
+                return ['success' => true, 'assignments' => []];
+            }
+
+            $matches = $this->prioritizeConsolationsFirst($this->getPlayableMatches());
+            if (empty($matches)) {
+                $this->conn->commit();
+                return ['success' => true, 'assignments' => []];
+            }
+
+            $matches = array_values($matches);
+            usort($stadiums, function($a, $b) {
+                return ((int)$a['id']) <=> ((int)$b['id']);
+            });
+
+            $judgesAssigned = [];
 
             foreach ($stadiums as $stadium) {
-                // Rule 3: Match Selection (FIFO, active round)
-                // Filter out matches already assigned in this run
-                $matches = $this->getPlayableMatches($usedMatches);
-                $matches = $this->prioritizeConsolationsFirst($matches);
-                
+                $result = $this->assignNextMatchForStadium($stadium, $matches, $judgesAssigned);
+                if (!$result) {
+                    continue;
+                }
+
+                $matchId = $result['match']['id'];
+                $judgeId = $result['judge_id'];
+                $stadiumId = (int)$stadium['id'];
+
+                $this->assignMatch($matchId, $judgeId, $stadiumId);
+
+                $assignments[] = [
+                    'match_id' => $matchId,
+                    'judge_id' => $judgeId,
+                    'stadium_id' => $stadiumId
+                ];
+
+                $judgesAssigned[$judgeId] = true;
+
+                unset($matches[$result['match_index']]);
+                $matches = array_values($matches);
+
                 if (empty($matches)) {
-                    // No more matches to play at all
                     break;
                 }
-
-                $foundForThisStadium = false;
-                foreach ($matches as $match) {
-                    if (!$this->isMatchReadyForAssignment($match)) {
-                        continue;
-                    }
-
-                    $matchDetails = $this->getMatchDetails($match['id']);
-                    if (!$matchDetails) {
-                        continue;
-                    }
-                    $matchDetails['stage'] = isset($match['stage']) ? (int)$match['stage'] : null;
-                    $matchDetails['round_number'] = isset($match['round_number']) ? (int)$match['round_number'] : null;
-                    $matchDetails['match_number'] = isset($match['match_number']) ? (int)$match['match_number'] : null;
-
-                    $designatedJudgeId = $this->getDesignatedJudgeId($matchDetails);
-                    $judge = null;
-
-                    if ($designatedJudgeId) {
-                        if ($this->isJudgeEligible($designatedJudgeId, $matchDetails)) {
-                            $judge = ['id' => $designatedJudgeId];
-                        } else {
-                            // Wait for designated semifinal/final judge to be available
-                            continue;
-                        }
-                    } else {
-                        $judge = $this->getBestJudgeForMatch($match['id']);
-                    }
-                    
-                    if ($judge) {
-                        // 1.7 Assignment must be atomic
-                        $this->assignMatch($match['id'], $judge['id'], $stadium['id']);
-                        
-                        $assignments[] = [
-                            'match_id' => $match['id'],
-                            'judge_id' => $judge['id'],
-                            'stadium_id' => $stadium['id']
-                        ];
-                        $usedMatches[] = $match['id'];
-                        $foundForThisStadium = true;
-                        break; // Success for this stadium, move to next stadium
-                    } else {
-                        /**
-                         * Rule 6.1: Block if no judge available.
-                         * We update the reason, but we'll try the next match in FIFO for this stadium.
-                         */
-                        $this->blockMatch($match['id'], "No eligible judge available (likely player-role overlap or fatigue).");
-                    }
-                }
-                // If not found for this stadium, we just continue to the next stadium loop
             }
 
             $this->conn->commit();
@@ -102,6 +93,93 @@ class MatchEngine {
             }
             return ['success' => false, 'message' => $e->getMessage()];
         }
+    }
+
+    private function assignNextMatchForStadium(array $stadium, array $matches, array $judgesAssigned) {
+        $stadiumId = (int)$stadium['id'];
+        $homeJudgeId = $this->judgeBindings[$stadiumId] ?? null;
+
+        foreach ($matches as $index => $match) {
+            if (!$this->isMatchReadyForAssignment($match)) {
+                continue;
+            }
+
+            $matchDetails = $this->getMatchDetails($match['id']);
+            if (!$matchDetails) {
+                continue;
+            }
+
+            $matchDetails['stage'] = isset($match['stage']) ? (int)$match['stage'] : null;
+            $matchDetails['round_number'] = isset($match['round_number']) ? (int)$match['round_number'] : null;
+            $matchDetails['match_number'] = isset($match['match_number']) ? (int)$match['match_number'] : null;
+
+            $designatedJudgeId = $this->getDesignatedJudgeId($matchDetails);
+
+            if ($designatedJudgeId) {
+                $designatedHome = $this->homeStadiumByJudge[$designatedJudgeId] ?? null;
+                if ($designatedHome !== null && $designatedHome !== $stadiumId) {
+                    // This match should be handled on the designated judge's home stadium.
+                    continue;
+                }
+                if (!empty($judgesAssigned[$designatedJudgeId])) {
+                    continue;
+                }
+                if ($this->isJudgeEligible($designatedJudgeId, $matchDetails)) {
+                    return [
+                        'match' => $match,
+                        'match_index' => $index,
+                        'judge_id' => $designatedJudgeId
+                    ];
+                }
+                continue;
+            }
+
+            if ($homeJudgeId && empty($judgesAssigned[$homeJudgeId]) && $this->isJudgeEligible($homeJudgeId, $matchDetails)) {
+                return [
+                    'match' => $match,
+                    'match_index' => $index,
+                    'judge_id' => $homeJudgeId
+                ];
+            }
+
+            $availableFloats = $this->getAvailableFloatingJudges($judgesAssigned);
+            if (!empty($availableFloats)) {
+                $floatCandidate = $this->getBestJudgeForMatch($match['id'], [], $stadiumId, $availableFloats);
+                if ($floatCandidate && empty($judgesAssigned[$floatCandidate['id']])) {
+                    return [
+                        'match' => $match,
+                        'match_index' => $index,
+                        'judge_id' => $floatCandidate['id']
+                    ];
+                }
+            }
+
+            $escapeCandidate = $this->getEscapeJudgeForMatch($match['id'], $stadiumId, $homeJudgeId, $matchDetails, $judgesAssigned);
+            if ($escapeCandidate) {
+                return [
+                    'match' => $match,
+                    'match_index' => $index,
+                    'judge_id' => $escapeCandidate['id']
+                ];
+            }
+        }
+
+        return null;
+    }
+
+    private function getAvailableFloatingJudges(array $judgesAssigned): array {
+        if (empty($this->floatingJudges)) {
+            return [];
+        }
+
+        $available = [];
+        foreach ($this->floatingJudges as $judgeId) {
+            if (empty($judgesAssigned[$judgeId])) {
+                $available[] = $judgeId;
+            }
+        }
+
+        return $available;
     }
 
     /**
@@ -177,30 +255,64 @@ class MatchEngine {
     /**
      * Rule 4 & 5: Judge selection with fatigue score
      */
-    private function getBestJudgeForMatch($matchId) {
+    private function getBestJudgeForMatch($matchId, array $preferredJudgeIds = [], $stadiumId = null, ?array $restrictToJudges = null) {
         $match = $this->getMatchDetails($matchId);
         if (!$match) return null;
 
-        // Fetch all potential judges for this tournament who have accepted
-        $sql = "SELECT tr.user_id as id, u.display_name
-                FROM tournament_roles tr
-                JOIN users u ON tr.user_id = u.id
-                WHERE tr.tournament_id = ? AND (FIND_IN_SET('judge', tr.role) > 0) AND tr.status = 'accepted'";
-        
-        $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("i", $this->tournamentId);
-        $stmt->execute();
-        $judges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $judges = $this->getOrderedJudges();
 
+        if ($restrictToJudges !== null) {
+            if (empty($restrictToJudges)) {
+                return null;
+            }
+            $allowList = array_fill_keys($restrictToJudges, true);
+            $judges = array_values(array_filter($judges, function ($judge) use ($allowList) {
+                return isset($allowList[$judge['id']]);
+            }));
+        }
+
+        $preferredJudgeIds = array_values(array_unique($preferredJudgeIds));
+        $primaryPreferred = $preferredJudgeIds[0] ?? null;
         $candidates = [];
         foreach ($judges as $judge) {
             if ($this->isJudgeEligible($judge['id'], $match)) {
                 $score = $this->calculateJudgeScore($judge['id'], $match['round_id'], $match);
-                $candidates[] = array_merge($judge, ['score' => $score]);
+
+                if ($stadiumId !== null) {
+                    $home = $this->homeStadiumByJudge[$judge['id']] ?? null;
+                    if ($home !== null) {
+                        if ($home === $stadiumId) {
+                            $score += 40;
+                        } else {
+                            // Heavy penalty: bound to a different stadium.
+                            $score -= 200;
+                        }
+                    }
+                }
+
+                if (!empty($preferredJudgeIds)) {
+                    $pos = array_search($judge['id'], $preferredJudgeIds, true);
+                    if ($pos !== false) {
+                        $score += max(0, 40 - ($pos * 5));
+                    }
+                }
+
+                $candidates[] = array_merge($judge, [
+                    'score' => $score,
+                    'order' => $this->judgeOrderPositions[$judge['id']] ?? PHP_INT_MAX
+                ]);
             }
         }
 
         if (empty($candidates)) return null;
+
+        if ($primaryPreferred) {
+            foreach ($candidates as $candidate) {
+                if ($candidate['id'] === $primaryPreferred) {
+                    return $candidate;
+                }
+            }
+        }
 
         /**
          * Rule 5.3: Choose highest score
@@ -210,7 +322,9 @@ class MatchEngine {
             if ($b['score'] != $a['score']) {
                 return $b['score'] <=> $a['score'];
             }
-            // Rule 5.3: Tie-breaker is Lowest judge_id
+            if (($a['order'] ?? 0) !== ($b['order'] ?? 0)) {
+                return ($a['order'] ?? 0) <=> ($b['order'] ?? 0);
+            }
             return strcmp($a['id'], $b['id']);
         });
 
@@ -264,6 +378,15 @@ class MatchEngine {
         if ($isCurrentlyPlaying) {
             // Heavy penalty for currently playing
             $score -= 50;
+        }
+
+        $onBye = $roundId ? $this->judgeHasBye($judgeId, $roundId) : false;
+        if ($onBye) {
+            $score += 35;
+            if ($isPlayer) {
+                // Offset player penalty when they're already resting this round
+                $score += 20;
+            }
         }
 
         // Fatigue calculation (original logic)
@@ -447,22 +570,39 @@ class MatchEngine {
 
         $consolations = [];
         $others = [];
+        $finals = [];
 
         foreach ($matches as $match) {
             $stage = isset($match['stage']) ? (int)$match['stage'] : null;
             $roundNumber = isset($match['round_number']) ? (int)$match['round_number'] : null;
             $matchNumber = isset($match['match_number']) ? (int)$match['match_number'] : null;
 
-            if ($stage === 2 && $roundNumber === $finalRound && $matchNumber !== null && $matchNumber >= 90) {
-                $consolations[] = $match;
-            } else if ($stage === 2 && $roundNumber === $finalRound && $matchNumber !== null && $matchNumber < 90) {
-                $others[] = $match;
+            if ($stage === 2 && $roundNumber === $finalRound) {
+                // In final round, prioritize by importance (finals first, then consolation in order)
+                if ($matchNumber !== null && $matchNumber < 90) {
+                    // Finals (1, 2, etc.) - play first
+                    $finals[] = $match;
+                } else {
+                    // Consolation matches - play after finals, sorted by descending importance
+                    $consolations[] = $match;
+                }
             } else {
                 $others[] = $match;
             }
         }
 
-        return array_merge($consolations, $others);
+        // Sort finals by match number (ascending)
+        usort($finals, function($a, $b) {
+            return ($a['match_number'] ?? 0) <=> ($b['match_number'] ?? 0);
+        });
+
+        // Sort consolation by descending importance (lower match number = higher importance)
+        usort($consolations, function($a, $b) {
+            return ($b['match_number'] ?? 0) <=> ($a['match_number'] ?? 0);
+        });
+
+        // Return in correct order: finals first, then consolation, then other matches
+        return array_merge($finals, $consolations, $others);
     }
 
     private function blockMatch($matchId, $reason) {
@@ -478,6 +618,168 @@ class MatchEngine {
         $stmt->bind_param("i", $matchId);
         $stmt->execute();
         return $stmt->get_result()->fetch_assoc();
+    }
+
+    private function getTournamentSeed() {
+        if ($this->tournamentSeed !== null) {
+            return $this->tournamentSeed;
+        }
+
+        $sql = "SELECT created_at FROM tournaments WHERE id = ?";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $this->tournamentId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+
+        $createdAt = $row['created_at'] ?? microtime(true);
+        $this->tournamentSeed = hash('sha256', $this->tournamentId . '|' . $createdAt);
+        return $this->tournamentSeed;
+    }
+
+    private function getOrderedJudges(): array {
+        if ($this->judgeOrderCache !== null) {
+            return $this->judgeOrderCache;
+        }
+
+        $sql = "SELECT tr.user_id as id, u.display_name
+                FROM tournament_roles tr
+                JOIN users u ON tr.user_id = u.id
+                WHERE tr.tournament_id = ? AND (FIND_IN_SET('judge', tr.role) > 0) AND tr.status = 'accepted'";
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $this->tournamentId);
+        $stmt->execute();
+        $judges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+        $seed = $this->getTournamentSeed();
+        $orderMap = [];
+        foreach ($judges as $judge) {
+            $orderKey = hexdec(substr(hash('sha256', $seed . '|' . $judge['id']), 0, 8));
+            $orderMap[$judge['id']] = $orderKey;
+        }
+
+        usort($judges, function($a, $b) use ($orderMap) {
+            if ($orderMap[$a['id']] === $orderMap[$b['id']]) {
+                return strcmp($a['id'], $b['id']);
+            }
+            return $orderMap[$a['id']] <=> $orderMap[$b['id']];
+        });
+
+        $this->judgeOrderCache = $judges;
+        foreach ($judges as $index => $judge) {
+            $this->judgeOrderPositions[$judge['id']] = $index;
+        }
+
+        return $this->judgeOrderCache;
+    }
+
+    private function initializeJudgeBindings(array $stadiums): void {
+        if ($this->judgeBindingsInitialized) {
+            return;
+        }
+
+        $this->judgeBindingsInitialized = true;
+        if (empty($stadiums)) {
+            return;
+        }
+
+        $judges = $this->getOrderedJudges();
+        if (empty($judges) || empty($stadiums)) {
+            return;
+        }
+
+        $sortedStadiums = $stadiums;
+        usort($sortedStadiums, function($a, $b) {
+            return $a['id'] <=> $b['id'];
+        });
+
+        $stadiumCount = count($sortedStadiums);
+        $judgeCount = count($judges);
+
+        $bindingCount = min($judgeCount, $stadiumCount);
+
+        for ($i = 0; $i < $bindingCount; $i++) {
+            $stadiumId = (int)$sortedStadiums[$i]['id'];
+            $judgeId = $judges[$i]['id'];
+            $this->judgeBindings[$stadiumId] = $judgeId;
+            $this->homeStadiumByJudge[$judgeId] = $stadiumId;
+        }
+
+        if ($judgeCount > $stadiumCount) {
+            $extraJudges = array_slice($judges, $stadiumCount);
+            $this->floatingJudges = array_map(function ($judge) {
+                return $judge['id'];
+            }, $extraJudges);
+
+            foreach ($extraJudges as $judge) {
+                if (!array_key_exists($judge['id'], $this->homeStadiumByJudge)) {
+                    $this->homeStadiumByJudge[$judge['id']] = null;
+                }
+            }
+        } else {
+            $this->floatingJudges = [];
+        }
+    }
+
+    private function judgeHasBye($judgeId, $roundId): bool {
+        if (!$roundId) {
+            return false;
+        }
+
+        if (!isset($this->roundByeCache[$roundId])) {
+            $sql = "SELECT bye_players FROM tournament_rounds WHERE id = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("i", $roundId);
+            $stmt->execute();
+            $row = $stmt->get_result()->fetch_assoc();
+
+            $list = [];
+            if ($row && !empty($row['bye_players'])) {
+                $entries = array_filter(array_map('trim', explode(',', $row['bye_players'])));
+                foreach ($entries as $entry) {
+                    if ($entry !== '') {
+                        $list[] = $entry;
+                    }
+                }
+            }
+
+            $this->roundByeCache[$roundId] = $list;
+        }
+
+        return in_array($judgeId, $this->roundByeCache[$roundId], true);
+    }
+
+    private function getEscapeJudgeForMatch($matchId, int $stadiumId, ?string $homeJudgeId, array $matchDetails, array $judgesAssigned) {
+        $availableFloats = $this->getAvailableFloatingJudges($judgesAssigned);
+        if (!empty($availableFloats)) {
+            $candidate = $this->getBestJudgeForMatch($matchId, [], $stadiumId, $availableFloats);
+            if ($candidate && empty($judgesAssigned[$candidate['id']])) {
+                return $candidate;
+            }
+        }
+
+        if ($homeJudgeId !== null && empty($judgesAssigned[$homeJudgeId]) && $this->isJudgeEligible($homeJudgeId, $matchDetails)) {
+            return ['id' => $homeJudgeId];
+        }
+
+        $boundJudges = array_values(array_unique(array_values($this->judgeBindings)));
+        $candidates = [];
+        foreach ($boundJudges as $judgeId) {
+            if ($homeJudgeId !== null && $judgeId === $homeJudgeId) {
+                continue;
+            }
+            if (!empty($judgesAssigned[$judgeId])) {
+                continue;
+            }
+            $candidates[] = $judgeId;
+        }
+
+        if (empty($candidates)) {
+            return null;
+        }
+
+        // Emergency escape: borrow a bound judge from another stadium to keep matches moving.
+        return $this->getBestJudgeForMatch($matchId, [], $stadiumId, $candidates);
     }
 }
 

@@ -22,7 +22,6 @@ async function updateWelcomeMessage() {
             }
             
             const rawText = await response.text();
-            console.log('DEBUG: Raw profile API response in dashboard:', rawText);
             
             if (!rawText.trim()) {
                 throw new Error('Empty response from profile API');
@@ -164,7 +163,6 @@ async function loadRecentTournaments() {
         }
         
         const rawText = await response.text();
-        console.log('DEBUG: Raw tournaments list API response:', rawText);
         
         if (!rawText.trim()) {
             throw new Error('Empty response from tournaments list API');
@@ -185,7 +183,6 @@ async function loadRecentTournaments() {
             
             if (profileResponse.ok) {
                 const profileRawText = await profileResponse.text();
-                console.log('DEBUG: Raw profile API response in tournaments:', profileRawText);
                 
                 if (profileRawText.trim()) {
                     try {

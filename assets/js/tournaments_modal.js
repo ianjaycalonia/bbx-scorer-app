@@ -1,8 +1,9 @@
 // Tournaments JavaScript - Modal functionality only
 
 let currentUser = null;
+let tournamentsList = [];
 
-function toggleSwissRoundsField(isSwiss) {
+const toggleSwissRoundsField = (isSwiss) => {
     const swissRoundsField = document.getElementById('swissRoundsField');
     const placementCoverageField = document.getElementById('placementCoverageField');
     const roundsInput = document.getElementById('tournamentRounds');
@@ -10,8 +11,7 @@ function toggleSwissRoundsField(isSwiss) {
 
     if (!swissRoundsField || !placementCoverageField || !roundsInput || !placementCoverageSelect) return;
 
-    const defaultRounds = parseInt(roundsInput.dataset.defaultRounds, 10);
-    const fallbackRounds = Number.isNaN(defaultRounds) ? 5 : defaultRounds;
+    const defaultRounds = parseInt(roundsInput.dataset.defaultRounds, 10) ?? 5;
 
     if (isSwiss) {
         // Show Swiss rounds field, hide placement coverage
@@ -22,99 +22,101 @@ function toggleSwissRoundsField(isSwiss) {
         placementCoverageSelect.value = '';
         
         if (!roundsInput.value) {
-            roundsInput.value = fallbackRounds;
+            roundsInput.value = defaultRounds;
         }
-    } else {
-        // Hide Swiss rounds field, show placement coverage
-        swissRoundsField.classList.add('d-none');
-        placementCoverageField.classList.remove('d-none');
-        roundsInput.disabled = true;
-        placementCoverageSelect.required = true;
-        roundsInput.value = fallbackRounds;
-        
-        // Set default placement coverage if not already selected
-        if (!placementCoverageSelect.value) {
-            placementCoverageSelect.value = '4'; // Default to 4th place
-        }
+        return;
+    }
+
+    // Hide Swiss rounds field, show placement coverage
+    swissRoundsField.classList.add('d-none');
+    placementCoverageField.classList.remove('d-none');
+    roundsInput.disabled = true;
+    placementCoverageSelect.required = true;
+    roundsInput.value = defaultRounds;
+    
+    // Set default placement coverage if not already selected
+    if (!placementCoverageSelect.value) {
+        placementCoverageSelect.value = '4'; // Default to 4th place
     }
 }
 
 // Initialize tournaments page
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', () => {
+    loadCurrentUser();
+    setupEventListeners();
+    loadTournaments();
+});
 
-    // Load current user from session
+// Load current user from session
+const loadCurrentUser = () => {
     const userStr = sessionStorage.getItem('user');
     if (userStr) {
         try {
             currentUser = JSON.parse(userStr);
         } catch (e) {
+            console.error('Failed to parse user session:', e);
         }
     }
-
-    setupEventListeners();
-    loadTournaments();
-});
+};
 
 // Setup event listeners
-function setupEventListeners() {
-    // Set minimum date to today for tournament date input
+const setupEventListeners = () => {
+    setupDateInput();
+    setupTournamentTypeListener();
+    setupLogoutListener();
+};
+
+const setupDateInput = () => {
     const tournamentDateInput = document.getElementById('tournamentDate');
-    if (tournamentDateInput) {
-        const today = new Date();
-        const yyyy = today.getFullYear();
-        const mm = String(today.getMonth() + 1).padStart(2, '0');
-        const dd = String(today.getDate()).padStart(2, '0');
-        const todayString = `${yyyy}-${mm}-${dd}`;
-        tournamentDateInput.setAttribute('min', todayString);
-    }
+    if (!tournamentDateInput) return;
 
-    // Tournament type change listener
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    const todayString = `${yyyy}-${mm}-${dd}`;
+    tournamentDateInput.setAttribute('min', todayString);
+};
+
+const setupTournamentTypeListener = () => {
     const tournamentTypeSelect = document.getElementById('tournamentType');
-    if (tournamentTypeSelect) {
-        const isSwiss = tournamentTypeSelect.value === 'swiss';
-        toggleSwissRoundsField(isSwiss);
+    if (!tournamentTypeSelect) return;
 
-        tournamentTypeSelect.addEventListener('change', function () {
-            const isSwiss = this.value === 'swiss';
-            toggleSwissRoundsField(isSwiss);
-        });
-    }
+    const isSwiss = tournamentTypeSelect.value === 'swiss';
+    toggleSwissRoundsField(isSwiss);
 
-    // Logout button listener
+    tournamentTypeSelect.addEventListener('change', function() {
+        toggleSwissRoundsField(this.value === 'swiss');
+    });
+};
+
+const setupLogoutListener = () => {
     const logoutBtn = document.getElementById('logoutBtn');
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', handleLogout);
-    }
-}
+    if (!logoutBtn) return;
+
+    logoutBtn.addEventListener('click', handleLogout);
+};
 
 // Load tournaments from database
-async function loadTournaments() {
+const loadTournaments = async () => {
     try {
-
-        // Load tournaments from API
         const response = await fetch('api/tournaments/list.php', {
             method: 'GET',
             credentials: 'include'
         });
 
         const result = await response.json();
-
-        if (result.success) {
-            tournamentsList = result.tournaments || [];
-            displayTournaments(tournamentsList);
-        } else {
-            displayTournaments([]);
-        }
-
+        tournamentsList = result.success ? (result.tournaments ?? []) : [];
+        displayTournaments(tournamentsList);
     } catch (err) {
+        console.error('Failed to load tournaments:', err);
         displayTournaments([]);
     }
-}
+};
 
 // Display tournaments
-function displayTournaments(tournaments) {
+const displayTournaments = (tournaments) => {
     const tournamentsDiv = document.getElementById('tournamentsList');
-
     if (!tournamentsDiv) return;
 
     if (tournaments.length === 0) {
@@ -127,106 +129,108 @@ function displayTournaments(tournaments) {
                 <p>Create your first tournament to get the competition started!</p>
             </div>
         `;
-    } else {
-        // Note: Card-level click handler removed to prevent accidental navigation.
-        // Only the View button should trigger navigation; Delete/Edit buttons handle their own actions.
-        tournamentsDiv.innerHTML = tournaments.map(tournament => `
-            <div class="tournament-card">
-                <div class="tournament-header">
-                    <div>
-                        <div class="tournament-type-badge">
-                            <i class="bi ${getTournamentIcon(tournament.tournament_type)}"></i>
-                            <span>${getTournamentTypeLabel(tournament.tournament_type)}</span>
-                        </div>
-                        <h3 class="tournament-title">${tournament.name}</h3>
-                    </div>
-                    <div class="tournament-status-badge ${tournament.status || 'upcoming'}">
-                        ${getStatusLabel(tournament.status || 'upcoming')}
-                    </div>
-                </div>
-                <div class="tournament-meta">
-                    <div class="meta-item">
-                        <i class="bi bi-calendar3"></i>
-                        <span>${tournament.date ? formatDate(tournament.date) : 'No date set'}</span>
-                    </div>
-                    <div class="meta-item">
-                        <i class="bi bi-geo-alt"></i>
-                        <span>${tournament.location || 'TBD'}</span>
-                    </div>
-                    <div class="meta-item">
-                        <i class="bi bi-people"></i>
-                        <span>${tournament.participant_count || 0} participants</span>
-                    </div>
-                    <div class="meta-item">
-                        <i class="bi bi-person"></i>
-                        <span>${tournament.created_by_name || 'Unknown'}</span>
-                    </div>
-                </div>
-                ${(function () {
-                    // Note: Card-level click handler removed to prevent accidental navigation.
-                    // Only the View button should trigger navigation; Delete/Edit buttons handle their own actions.
-                    const isCreator = currentUser && String(tournament.created_by) === String(currentUser.id);
-                    // Database status enum: 'upcoming' (not started), 'ongoing' (in progress), 'completed' (finished)
-                    // Delete button should only show for 'upcoming' and 'completed' tournaments
-                    const isDeletableStatus = ['upcoming', 'completed'].includes(tournament.status);
-                    const showDelete = isCreator && isDeletableStatus;
-                    const showEdit = isCreator;
-
-                    // Debug logging for Delete button visibility
-                    console.log('[Delete Button Debug]', {
-                        tournamentId: tournament.id,
-                        tournamentName: tournament.name,
-                        tournamentStatus: tournament.status,
-                        tournamentCreatedBy: tournament.created_by,
-                        currentUser: currentUser ? currentUser.id : null,
-                        isCreator,
-                        isDeletableStatus,
-                        showDelete
-                    });
-
-                    return `
-                        <div class="tournament-actions" onclick="event.stopPropagation()">
-                            <button type="button" class="btn btn-primary" onclick="event.stopPropagation(); viewTournament('${tournament.id}')">
-                                <i class="bi bi-eye"></i> View
-                            </button>
-                            ${showDelete ? `
-                                <button type="button" class="btn btn-outline-danger ms-2" onclick="event.stopPropagation(); deleteTournament('${tournament.id}', event)">
-                                    <i class="bi bi-trash"></i> Delete
-                                </button>
-                            ` : ''}
-                            ${showEdit ? `
-                                <button type="button" class="btn btn-outline-secondary ms-2" onclick="event.stopPropagation(); editTournament('${tournament.id}')">
-                                    <i class="bi bi-pencil"></i> Edit
-                                </button>
-                            ` : ''}
-                        </div>
-                    `;
-                })()}
-            </div>
-        `).join('');
+        return;
     }
-}
+
+    // Note: Card-level click handler removed to prevent accidental navigation.
+    // Only the View button should trigger navigation; Delete/Edit buttons handle their own actions.
+    tournamentsDiv.innerHTML = tournaments.map(tournament => `
+        <div class="tournament-card">
+            <div class="tournament-header">
+                <div>
+                    <div class="tournament-type-badge">
+                        <i class="bi ${getTournamentIcon(tournament.tournament_type)}"></i>
+                        <span>${getTournamentTypeLabel(tournament.tournament_type)}</span>
+                    </div>
+                    <h3 class="tournament-title">${tournament.name}</h3>
+                </div>
+                <div class="tournament-status-badge ${tournament.status || 'upcoming'}">
+                    ${getStatusLabel(tournament.status || 'upcoming')}
+                </div>
+            </div>
+            <div class="tournament-meta">
+                <div class="meta-item">
+                    <i class="bi bi-calendar3"></i>
+                    <span>${tournament.date ? formatDate(tournament.date) : 'No date set'}</span>
+                </div>
+                <div class="meta-item">
+                    <i class="bi bi-geo-alt"></i>
+                    <span>${tournament.location || 'TBD'}</span>
+                </div>
+                <div class="meta-item">
+                    <i class="bi bi-people"></i>
+                    <span>${tournament.participant_count ?? 0} participants</span>
+                </div>
+                <div class="meta-item">
+                    <i class="bi bi-person"></i>
+                    <span>${tournament.created_by_name ?? 'Unknown'}</span>
+                </div>
+            </div>
+            ${renderTournamentActions(tournament)}
+        </div>
+    `).join('');
+};
+
+// Render tournament action buttons
+const renderTournamentActions = (tournament) => {
+    const isCreator = currentUser && String(tournament.created_by) === String(currentUser.id);
+    // Database status enum: 'upcoming' (not started), 'ongoing' (in progress), 'completed' (finished)
+    // Delete button should only show for 'upcoming' and 'completed' tournaments
+    const isDeletableStatus = ['upcoming', 'completed'].includes(tournament.status);
+    const showDelete = isCreator && isDeletableStatus;
+    const showEdit = isCreator;
+
+    // Debug logging for Delete button visibility
+    console.log('[Delete Button Debug]', {
+        tournamentId: tournament.id,
+        tournamentName: tournament.name,
+        tournamentStatus: tournament.status,
+        tournamentCreatedBy: tournament.created_by,
+        currentUser: currentUser?.id,
+        isCreator,
+        isDeletableStatus,
+        showDelete
+    });
+
+    return `
+        <div class="tournament-actions" onclick="event.stopPropagation()">
+            <button type="button" class="btn btn-primary" onclick="event.stopPropagation(); viewTournament('${tournament.id}')">
+                <i class="bi bi-eye"></i> View
+            </button>
+            ${showDelete ? `
+                <button type="button" class="btn btn-outline-danger ms-2" onclick="event.stopPropagation(); deleteTournament('${tournament.id}', event)">
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+            ` : ''}
+            ${showEdit ? `
+                <button type="button" class="btn btn-outline-secondary ms-2" onclick="event.stopPropagation(); editTournament('${tournament.id}')">
+                    <i class="bi bi-pencil"></i> Edit
+                </button>
+            ` : ''}
+        </div>
+    `;
+};
 
 // Helper functions
-function getTournamentTypeLabel(type) {
+const getTournamentTypeLabel = (type) => {
     const labels = {
         'single_elimination': 'Single Elim',
         'double_elimination': 'Double Elim',
         'swiss': 'Swiss'
     };
-    return labels[type] || type;
-}
+    return labels[type] ?? type;
+};
 
-function getTournamentIcon(type) {
+const getTournamentIcon = (type) => {
     const icons = {
         'single_elimination': 'bi-lightning',
         'double_elimination': 'bi-diagram-3',
         'swiss': 'bi-grid-3x3'
     };
-    return icons[type] || 'bi-trophy';
-}
+    return icons[type] ?? 'bi-trophy';
+};
 
-function getStatusLabel(status) {
+const getStatusLabel = (status) => {
     const labels = {
         'upcoming': 'Coming Soon',
         'registration': 'Open',
@@ -234,25 +238,24 @@ function getStatusLabel(status) {
         'completed': 'Finished',
         'cancelled': 'Cancelled'
     };
-    return labels[status] || 'Upcoming';
-}
+    return labels[status] ?? 'Upcoming';
+};
 
-function formatDate(dateString) {
+const formatDate = (dateString) => {
     if (!dateString) return 'No date';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+};
 
-function viewTournament(tournamentId) {
+const viewTournament = (tournamentId) => {
     if (!tournamentId) {
         showToast('Invalid tournament ID', { variant: 'danger' });
         return;
     }
     window.location.href = `tournament-detail.html?id=${tournamentId}`;
-}
+};
 
-function editTournament(tournamentId) {
-
+const editTournament = (tournamentId) => {
     // Find tournament data
     const tournament = tournamentsList.find(t => t.id == tournamentId);
     if (!tournament) {
@@ -261,15 +264,16 @@ function editTournament(tournamentId) {
     }
 
     // Populate the modal with tournament data
-    document.getElementById('tournamentName').value = tournament.name || '';
+    document.getElementById('tournamentName').value = tournament.name ?? '';
     const typeSelect = document.getElementById('tournamentType');
-    typeSelect.value = tournament.tournament_type || 'single_elimination';
-    document.getElementById('tournamentDate').value = tournament.date || '';
-    document.getElementById('tournamentLocation').value = tournament.location || '';
-    document.getElementById('tournamentStadiums').value = tournament.number_of_stadiums || 1;
+    typeSelect.value = tournament.tournament_type ?? 'single_elimination';
+    document.getElementById('tournamentDate').value = tournament.date ?? '';
+    document.getElementById('tournamentLocation').value = tournament.location ?? '';
+    document.getElementById('tournamentStadiums').value = tournament.number_of_stadiums ?? 1;
+    
     const visibilitySelect = document.getElementById('tournamentVisibility');
     if (visibilitySelect) {
-        visibilitySelect.value = tournament.visibility || 'team_only';
+        visibilitySelect.value = tournament.visibility ?? 'team_only';
     }
 
     // Show rounds field if Swiss
@@ -280,9 +284,9 @@ function editTournament(tournamentId) {
         const parsedRounds = parseInt(tournament.swiss_rounds, 10);
         if (!Number.isNaN(parsedRounds) && parsedRounds > 0) {
             roundsInput.value = parsedRounds;
-        } else if (tournament.rules && tournament.rules.includes('Swiss tournament with')) {
+        } else if (tournament.rules?.includes('Swiss tournament with')) {
             const roundsMatch = tournament.rules.match(/(\d+) rounds/);
-            roundsInput.value = roundsMatch ? roundsMatch[1] : roundsInput.value;
+            roundsInput.value = roundsMatch?.[1] ?? roundsInput.value;
         }
     } else if (tournament.tournament_type === 'single_elimination' || tournament.tournament_type === 'double_elimination') {
         // Set placement coverage for elimination tournaments
@@ -304,18 +308,17 @@ function editTournament(tournamentId) {
     const modalElement = document.getElementById('tournamentModal');
     const modal = new bootstrap.Modal(modalElement);
     modal.show();
-}
+};
 
 // Save Tournament (handles both create and update)
-async function saveTournament() {
-
+const saveTournament = async () => {
     const name = document.getElementById('tournamentName').value;
     const type = document.getElementById('tournamentType').value;
     const date = document.getElementById('tournamentDate').value;
     const location = document.getElementById('tournamentLocation').value;
     const stadiums = document.getElementById('tournamentStadiums').value;
     const rounds = document.getElementById('tournamentRounds').value;
-    const visibility = document.getElementById('tournamentVisibility')?.value || 'team_only';
+    const visibility = document.getElementById('tournamentVisibility')?.value ?? 'team_only';
     const placementCoverage = document.getElementById('placementCoverage')?.value;
 
     if (!name) {
@@ -329,14 +332,14 @@ async function saveTournament() {
     }
 
     // Validate tournament date
-    if (!date || date.trim() === '') {
+    if (!date?.trim()) {
         showToast('Please select a tournament date', { variant: 'danger' });
         return;
     }
 
     // Validate that the date is a valid date value
     const parsedDate = new Date(date);
-    if (isNaN(parsedDate.getTime())) {
+    if (Number.isNaN(parsedDate.getTime())) {
         showToast('Please enter a valid tournament date', { variant: 'danger' });
         return;
     }
@@ -351,7 +354,7 @@ async function saveTournament() {
     }
 
     // Validate location
-    if (!location || location.trim() === '') {
+    if (!location?.trim()) {
         showToast('Please enter a tournament location', { variant: 'danger' });
         return;
     }
@@ -476,10 +479,11 @@ async function saveTournament() {
     }
 }
 
-function resetModalForm() {
+const resetModalForm = () => {
     // Reset form
     document.getElementById('tournamentForm').reset();
     toggleSwissRoundsField(false);
+    
     const visibilitySelect = document.getElementById('tournamentVisibility');
     if (visibilitySelect) {
         visibilitySelect.value = 'team_only';
@@ -497,11 +501,10 @@ function resetModalForm() {
 
     // Clear editing mode
     window.editingTournamentId = null;
-}
+};
 
 // Logout handler
-async function handleLogout() {
-
+const handleLogout = async () => {
     const confirmed = await showConfirmation({
         title: 'Logout',
         message: 'Are you sure you want to logout?',
@@ -509,15 +512,13 @@ async function handleLogout() {
         confirmVariant: 'danger'
     });
 
-    if (!confirmed) {
-        return;
-    }
+    if (!confirmed) return;
 
     window.location.href = 'index.html';
-}
+};
 
 // Make functions globally accessible
-window.createTournament = window.createTournament || function() {
+window.createTournament = window.createTournament || (() => {
     // Reset form first to clear any previous state
     resetModalForm();
     
@@ -532,12 +533,13 @@ window.createTournament = window.createTournament || function() {
     // Show the tournament creation modal
     const modal = new bootstrap.Modal(document.getElementById('tournamentModal'));
     modal.show();
-};
+});
 window.saveTournament = saveTournament;
 window.viewTournament = viewTournament;
 window.editTournament = editTournament;
+
 // Reuses existing delete API discovered during repo audit (see tournament-detail.js + api/tournaments/create.php)
-window.deleteTournament = window.deleteTournament || async function(tournamentId, evt) {
+window.deleteTournament = async (tournamentId, evt) => {
     const confirmed = await showConfirmation({
         title: 'Delete Tournament',
         message: `Are you sure you want to delete this tournament? This action cannot be undone.`,
@@ -545,14 +547,12 @@ window.deleteTournament = window.deleteTournament || async function(tournamentId
         confirmVariant: 'danger'
     });
 
-    if (!confirmed) {
-        return;
-    }
+    if (!confirmed) return;
 
     let deleteButton = null;
     let originalButtonHtml = '';
 
-    if (evt && evt.currentTarget instanceof HTMLElement) {
+    if (evt?.currentTarget instanceof HTMLElement) {
         evt.stopPropagation();
         deleteButton = evt.currentTarget;
         originalButtonHtml = deleteButton.innerHTML;
@@ -578,7 +578,7 @@ window.deleteTournament = window.deleteTournament || async function(tournamentId
             showToast('Tournament deleted successfully!', { variant: 'success' });
             await loadTournaments();
         } else {
-            showToast(result.message || 'Failed to delete tournament', { variant: 'danger' });
+            showToast(result.message ?? 'Failed to delete tournament', { variant: 'danger' });
         }
     } catch (error) {
         showToast('Failed to delete tournament', { variant: 'danger' });
@@ -589,5 +589,6 @@ window.deleteTournament = window.deleteTournament || async function(tournamentId
         }
     }
 };
+
 window.resetModalForm = resetModalForm;
 window.handleLogout = handleLogout;

@@ -1,7 +1,7 @@
 (function () {
     const defaultToastDelay = 3500;
 
-    function ensureToastContainer() {
+    const ensureToastContainer = () => {
         let container = document.getElementById('ui-toast-container');
         if (!container) {
             container = document.createElement('div');
@@ -11,9 +11,9 @@
             document.body.appendChild(container);
         }
         return container;
-    }
+    };
 
-    function createToastElement(message, options = {}) {
+    const createToastElement = (message, options = {}) => {
         const { title = '', variant = 'primary', delay = defaultToastDelay } = options;
         const toastEl = document.createElement('div');
         toastEl.className = `toast align-items-center text-bg-${variant} border-0`;
@@ -32,9 +32,9 @@
         `;
 
         return { toastEl, delay };
-    }
+    };
 
-    function showToast(message, options = {}) {
+    const showToast = (message, options = {}) => {
         const container = ensureToastContainer();
         const { toastEl, delay } = createToastElement(message, options);
         container.appendChild(toastEl);
@@ -50,9 +50,9 @@
 
         toast.show();
         return toast;
-    }
+    };
 
-    function ensureModal(id, contentBuilder) {
+    const ensureModal = (id, contentBuilder) => {
         let modalEl = document.getElementById(id);
         if (!modalEl) {
             modalEl = document.createElement('div');
@@ -63,9 +63,9 @@
             document.body.appendChild(modalEl);
         }
         return modalEl;
-    }
+    };
 
-    function getConfirmationModal() {
+    const getConfirmationModal = () => {
         return ensureModal('ui-confirmation-modal', () => `
             <div class="modal-dialog">
                 <div class="modal-content">
@@ -83,9 +83,9 @@
                 </div>
             </div>
         `);
-    }
+    };
 
-    function showConfirmation(options = {}) {
+    const showConfirmation = (options = {}) => {
         const {
             title = 'Confirm',
             message = 'Are you sure?',
@@ -135,7 +135,7 @@
         });
     }
 
-    function getPromptModal() {
+    const getPromptModal = () => {
         return ensureModal('ui-prompt-modal', () => `
             <div class="modal-dialog">
                 <div class="modal-content">
@@ -156,7 +156,7 @@
         `);
     }
 
-    function showPrompt(options = {}) {
+    const showPrompt = (options = {}) => {
         const {
             title = 'Input Required',
             message = 'Please provide a value.',
@@ -198,6 +198,13 @@
                 resolve(inputEl.value);
             };
 
+            const onKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    onConfirm();
+                }
+            };
+
             const onHidden = () => {
                 if (!resolved) {
                     resolve(null);
@@ -205,28 +212,17 @@
                 cleanup();
             };
 
-            const onKeyDown = (event) => {
-                if (event.key === 'Enter') {
-                    event.preventDefault();
-                    onConfirm();
-                }
-            };
-
-            confirmBtn.addEventListener('click', onConfirm);
-            modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
+            confirmBtn.addEventListener('click', onConfirm, { once: true });
             inputEl.addEventListener('keydown', onKeyDown);
+            modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
 
             modal.show();
-            setTimeout(() => inputEl.focus(), 200);
         });
-    }
+    };
 
-    window.showToast = showToast;
-    window.showConfirmation = showConfirmation;
     window.showPrompt = showPrompt;
 
-    // --- Scoring Modal Logic ---
-    function getScoringModal() {
+    const getScoringModal = () => {
         return ensureModal('ui-scoring-modal', () => `
             <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-bottom">
                 <div class="modal-content border-0">
@@ -279,8 +275,8 @@
                                         <div class="fw-bold">Xtreme</div>
                                         <div class="small opacity-75">+3</div>
                                     </button>
-                                    <button class="btn btn-outline-white py-3 finish-btn" data-player="p1" data-points="1" data-type="No Contact Pocket">
-                                        <div class="fw-bold">No Contact Pocket</div>
+                                    <button class="btn btn-outline-white py-3 finish-btn" data-player="p1" data-points="1" data-type="Fault">
+                                        <div class="fw-bold">Fault</div>
                                         <div class="small opacity-75">+1</div>
                                     </button>
                                 </div>
@@ -304,8 +300,8 @@
                                         <div class="fw-bold">Xtreme</div>
                                         <div class="small opacity-75">+3</div>
                                     </button>
-                                    <button class="btn btn-outline-white py-3 finish-btn" data-player="p2" data-points="1" data-type="No Contact Pocket">
-                                        <div class="fw-bold">No Contact Pocket</div>
+                                    <button class="btn btn-outline-white py-3 finish-btn" data-player="p2" data-points="1" data-type="Fault">
+                                        <div class="fw-bold">Fault</div>
                                         <div class="small opacity-75">+1</div>
                                     </button>
                                 </div>
@@ -340,6 +336,9 @@
 
     function showScoringModal(p1Name, p2Name, existingData = null) {
         return new Promise((resolve) => {
+            const config = existingData?.config || {};
+            const minPoints = config.minPoints || 4;
+
             const modalEl = getScoringModal();
             const modal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
 
@@ -395,8 +394,8 @@
 
                 undoBtn.disabled = history.length === 0;
 
-                // Win condition visual cue (First to 4)
-                if (p1Score >= 4 || p2Score >= 4) {
+                // Win condition visual cue
+                if (p1Score >= minPoints || p2Score >= minPoints) {
                     submitBtn.textContent = 'Finish Match';
                     submitBtn.classList.remove('btn-dark');
                     submitBtn.classList.add('btn-primary');
@@ -429,9 +428,9 @@
                     } else if (move.type.includes('Xtreme')) {
                         bgClass = 'bg-primary text-white';
                         label = 'Xtreme';
-                    } else if (move.type.includes('Contact Pocket') || move.type.includes('NCP')) {
+                    } else if (move.type.includes('Contact Pocket') || move.type.includes('Fault')) {
                         bgClass = 'bg-secondary text-white';
-                        label = 'NCP';
+                        label = 'Fault';
                     } else {
                         // Spin default - solid yellow with white text
                         bgClass = 'bg-warning text-white';
@@ -502,8 +501,8 @@
 
             const submit = () => {
                 // Client-side validation: Check min score
-                if (p1Score < 4 && p2Score < 4) {
-                    showToast('Match not finished. First to 4 points wins.', { variant: 'warning' });
+                if (p1Score < minPoints && p2Score < minPoints) {
+                    showToast(`Match not finished. First to ${minPoints} points wins.`, { variant: 'warning' });
                     // Do NOT close the modal
                     return;
                 }
@@ -548,5 +547,7 @@
         });
     }
 
+    window.showToast = showToast;
+    window.showConfirmation = showConfirmation;
     window.showScoringModal = showScoringModal;
 })();
