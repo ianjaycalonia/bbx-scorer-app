@@ -178,7 +178,8 @@
                             <div class="col-md-6">
                                 <div class="mb-3" id="swissRoundsField">
                                     <label for="tournamentRounds" class="form-label">Number of Rounds</label>
-                                    <input type="number" class="form-control" id="tournamentRounds" min="3" max="15" value="5" data-default-rounds="5" disabled>
+                                    <input type="number" class="form-control" id="tournamentRounds" min="3" max="15"
+                                        value="5" data-default-rounds="5" disabled>
 
                                     <small class="form-text text-muted">Number of rounds for Swiss tournament (3-15
                                         rounds)</small>
@@ -187,13 +188,15 @@
                                     <label for="placementCoverage" class="form-label">Placement Cutoff</label>
                                     <select class="form-select" id="placementCoverage" required>
                                         <option value="">Select Cutoff</option>
+                                        <option value="3" selected>3rd Place</option>
                                         <option value="4">4th Place</option>
                                         <option value="5">5th Place</option>
                                         <option value="6">6th Place</option>
                                         <option value="7">7th Place</option>
                                         <option value="8">8th Place</option>
                                     </select>
-                                    <small class="form-text text-muted">Lowest placement that will be determined and displayed</small>
+                                    <small class="form-text text-muted">Lowest placement that will be determined and
+                                        displayed</small>
                                 </div>
                             </div>
                         </div>

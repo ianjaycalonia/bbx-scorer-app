@@ -53,7 +53,8 @@
                             <h1 id="tournamentName" class="h4 fw-bold mb-0 text-truncate">Tournament Details</h1>
                         </div>
 
-                        <div id="stage2ButtonContainer" class="alert alert-info mb-0 stage2-button-container-hidden single-elimination-hidden">
+                        <div id="stage2ButtonContainer"
+                            class="alert alert-info mb-0 stage2-button-container-hidden single-elimination-hidden">
                             <div
                                 class="d-flex flex-column flex-md-row align-items-center justify-content-between gap-3 text-center text-md-start">
                                 <div>
@@ -62,7 +63,8 @@
                                     <p class="mb-0 mt-1">All matches have been scored. Select top cut size to advance.
                                     </p>
                                 </div>
-                                <div class="d-flex flex-column flex-sm-row align-items-center gap-2 w-100 w-md-auto stage-progress-actions">
+                                <div
+                                    class="d-flex flex-column flex-sm-row align-items-center gap-2 w-100 w-md-auto stage-progress-actions">
                                     <div class="input-group w-100 w-sm-auto input-group-min-width">
                                         <span class="input-group-text bg-white border-end-0">Top</span>
                                         <input type="number" id="topCutSelect" class="form-control border-start-0 ps-0"
@@ -73,6 +75,21 @@
                                         <i class="bi bi-arrow-right-circle me-2"></i>Proceed to Stage 2
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div id="tournamentCompletionContainer" class="alert alert-success mb-0 d-none">
+                            <div
+                                class="d-flex flex-column flex-md-row align-items-center justify-content-between gap-3 text-center text-md-start">
+                                <div>
+                                    <i class="bi bi-check-circle-fill me-2"></i>
+                                    <strong>Tournament Ready to Finish!</strong>
+                                    <p class="mb-0 mt-1">All bracket matches have been scored. Finalize the tournament
+                                        to announce the winners.</p>
+                                </div>
+                                <button class="btn btn-success btn-lg w-100 w-sm-auto" onclick="finishTournament()">
+                                    <i class="bi bi-flag-fill me-2"></i>Finish Tournament
+                                </button>
                             </div>
                         </div>
 
@@ -140,22 +157,19 @@
                                         <th class="text-center">
                                             BP
                                             <i class="bi bi-question-circle-fill text-muted ms-1 tooltip-icon"
-                                                data-bs-toggle="tooltip"
-                                                data-bs-placement="top" data-bs-trigger="click"
+                                                data-bs-toggle="tooltip" data-bs-placement="top" data-bs-trigger="click"
                                                 title="Bey Points: Total points scored in all matches (Burst=2, Over=2, Xtreme=3)"></i>
                                         </th>
                                         <th class="text-center">
                                             STR
                                             <i class="bi bi-question-circle-fill text-muted ms-1 tooltip-icon"
-                                                data-bs-toggle="tooltip"
-                                                data-bs-placement="top" data-bs-trigger="click"
+                                                data-bs-toggle="tooltip" data-bs-placement="top" data-bs-trigger="click"
                                                 title="Strength Metric: (OMPA × 2) + (Opponent Win Rate × 5). Measures opponent strength and their success"></i>
                                         </th>
                                         <th class="text-center">
                                             FQI
                                             <i class="bi bi-question-circle-fill text-muted ms-1 tooltip-icon"
-                                                data-bs-toggle="tooltip"
-                                                data-bs-placement="top" data-bs-trigger="click"
+                                                data-bs-toggle="tooltip" data-bs-placement="top" data-bs-trigger="click"
                                                 title="Finish Quality Index: % of finishes that are Xtreme/Burst/Over"></i>
                                         </th>
                                     </tr>

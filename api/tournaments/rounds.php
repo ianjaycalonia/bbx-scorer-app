@@ -266,27 +266,36 @@ class TournamentManager
 
     public function getPodium()
     {
-        // (Keep existing logic or move to separate Stats class, but keeping here for now as it's just querying)
-        // ... For brevity I will assume I need to copy the previous implementation or delegate.
-        // Since I deleted the previous file content, I must implement it or request view. 
-        // I'll implement a simple one based on previous memory/context.
-        // Actually, I should probably just copy the `getFinalRankings` logic.
+        $tournament = $this->getTournamentDetails();
+        $isSwiss = ($tournament['tournament_type'] === 'swiss');
+        // Elimination bracket is Stage 2 for Swiss (Top Cut) and Stage 1 for Single Elimination
+        $elimStage = $isSwiss ? 2 : 1;
+
         $rankings = [];
-        $sql = "SELECT winner_id, player1_id, player2_id FROM tournament_matches tm JOIN tournament_rounds tr ON tm.round_id = tr.id WHERE tm.tournament_id = ? AND tr.stage = 2 AND tm.match_number = 1";
+
+        // Final Match (1st & 2nd)
+        $sql = "SELECT tm.winner_id, tm.player1_id, tm.player2_id FROM tournament_matches tm 
+                JOIN tournament_rounds tr ON tm.round_id = tr.id 
+                WHERE tm.tournament_id = ? AND tr.stage = ? AND tm.match_number = 1
+                ORDER BY tr.round_number DESC LIMIT 1";
         $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("i", $this->tournamentId);
+        $stmt->bind_param("ii", $this->tournamentId, $elimStage);
         $stmt->execute();
         $finals = $stmt->get_result()->fetch_assoc();
+
         if ($finals && $finals['winner_id']) {
             $rankings[1] = $finals['winner_id'];
             $rankings[2] = ($finals['winner_id'] == $finals['player1_id']) ? $finals['player2_id'] : $finals['player1_id'];
         }
-        // Add 3rd place etc...
-        // Fetch other matches... 99, 98, 97...
+
+        // Placement Matches (3rd, 5th, 7th...)
         foreach ([99 => [3, 4], 98 => [5, 6], 97 => [7, 8]] as $mNum => $places) {
-            $sql = "SELECT winner_id, player1_id, player2_id FROM tournament_matches WHERE tournament_id = ? AND match_number = ?";
+            $sql = "SELECT tm.winner_id, tm.player1_id, tm.player2_id FROM tournament_matches tm
+                    JOIN tournament_rounds tr ON tm.round_id = tr.id
+                    WHERE tm.tournament_id = ? AND tm.match_number = ? AND tr.stage = ?
+                    ORDER BY tr.round_number DESC LIMIT 1";
             $stmt = $this->conn->prepare($sql);
-            $stmt->bind_param("ii", $this->tournamentId, $mNum);
+            $stmt->bind_param("iii", $this->tournamentId, $mNum, $elimStage);
             $stmt->execute();
             $m = $stmt->get_result()->fetch_assoc();
             if ($m && $m['winner_id']) {
@@ -297,23 +306,42 @@ class TournamentManager
 
         $result = [];
         if ($rankings) {
-            $ids = implode("','", array_map([$this->conn, 'real_escape_string'], array_filter($rankings)));
-            $sql = "SELECT id, display_name FROM users WHERE id IN ('$ids')";
-            $res = $this->conn->query($sql);
-            $users = [];
-            while ($u = $res->fetch_assoc())
-                $users[$u['id']] = $u;
-            foreach ($rankings as $p => $uid)
-                $result[$p] = ['id' => $uid, 'name' => $users[$uid]['display_name'] ?? 'Unknown'];
+            $ids = array_unique(array_filter($rankings));
+            if (!empty($ids)) {
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $sql = "SELECT id, display_name FROM users WHERE id IN ($placeholders)";
+                $stmt = $this->conn->prepare($sql);
+                $types = str_repeat('s', count($ids));
+                $stmt->bind_param($types, ...$ids);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                $users = [];
+                while ($u = $res->fetch_assoc()) {
+                    $users[$u['id']] = $u;
+                }
+                foreach ($rankings as $p => $uid) {
+                    $result[$p] = [
+                        'id' => $uid,
+                        'name' => $users[$uid]['display_name'] ?? 'Unknown'
+                    ];
+                }
+            }
         }
 
         $swissKing = null;
-        try {
-            $calc = new StandingsCalculator($this->conn, $this->tournamentId);
-            $s = $calc->calculate();
-            if ($s)
-                $swissKing = $s[0];
-        } catch (Exception $e) {
+        if ($isSwiss) {
+            try {
+                $calc = new StandingsCalculator($this->conn, $this->tournamentId);
+                $s = $calc->calculate();
+                if (!empty($s)) {
+                    $swissKing = [
+                        'id' => $s[0]['id'],
+                        'name' => $s[0]['name']
+                    ];
+                }
+            } catch (Exception $e) {
+                // Ignore errors in Swiss King calculation
+            }
         }
 
         return ['success' => true, 'podium' => $result, 'swissKing' => $swissKing];
@@ -366,6 +394,7 @@ if (basename(__FILE__) == basename($_SERVER['SCRIPT_FILENAME'])) {
 
             $sql = "SELECT tr.id as round_id, tr.round_number, tr.status as round_status, tr.stage, tr.bye_players,
                            tm.id as match_id, tm.match_number, tm.player1_id, tm.player2_id, 
+                           tm.player1_seed, tm.player2_seed,
                            tm.winner_id, tm.status as match_status, tm.blocked_reason,
                            tm.player1_score, tm.player2_score,
                            tm.next_match_id, tm.next_match_slot,
@@ -419,8 +448,8 @@ if (basename(__FILE__) == basename($_SERVER['SCRIPT_FILENAME'])) {
                         'match_number' => $row['match_number'],
                         'status' => $row['match_status'],
                         'blocked_reason' => $row['blocked_reason'],
-                        'player1' => ['id' => $row['player1_id'], 'name' => $p1Name, 'score' => $row['player1_score']],
-                        'player2' => ['id' => $row['player2_id'], 'name' => $p2Name, 'score' => $row['player2_score']],
+                        'player1' => ['id' => $row['player1_id'], 'name' => $p1Name, 'score' => $row['player1_score'], 'seed' => $row['player1_seed']],
+                        'player2' => ['id' => $row['player2_id'], 'name' => $p2Name, 'score' => $row['player2_score'], 'seed' => $row['player2_seed']],
                         'winner_id' => $row['winner_id'],
                         'next_match_id' => $row['next_match_id'],
                         'next_match_slot' => $row['next_match_slot'],

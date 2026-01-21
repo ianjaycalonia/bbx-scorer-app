@@ -137,8 +137,8 @@ class SingleEliminationEngine
                     $stmt->execute();
                 }
 
-                // Create 7th Place Match (97) if requested
-                if ($rankTo >= 7) {
+                // Create 7th Place Match (97) - Always create if 5th place is active to ensure definitive 7/8
+                if ($rankTo >= 5) {
                     $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, status) VALUES (?, ?, 97, 'scheduled')";
                     $stmt = $this->conn->prepare($sql);
                     $stmt->bind_param("ii", $this->tournamentId, $finalsRoundId);
@@ -177,28 +177,38 @@ class SingleEliminationEngine
             }
         }
 
-        // Fill Round 1 with players
+        // Fill Round 1 with players using seeded folding logic
+        $seededIndices = $this->getSeededOrder($bracketSize);
         $round1Matches = $matchesByRound[1];
+
         for ($i = 0; $i < $bracketSize; $i += 2) {
             $matchId = $round1Matches[$i / 2];
-            $p1 = $players[$i]['id'] ?? null;
-            $p2 = $players[$i + 1]['id'] ?? null;
+
+            // Get IDs for the paired seeds
+            $idx1 = $seededIndices[$i] - 1;
+            $idx2 = $seededIndices[$i + 1] - 1;
+
+            $p1 = $players[$idx1]['id'] ?? null;
+            $p2 = $players[$idx2]['id'] ?? null;
+
+            $s1 = $seededIndices[$i];
+            $s2 = $seededIndices[$i + 1];
 
             if ($p1 && $p2) {
-                $sql = "UPDATE tournament_matches SET player1_id = ?, player2_id = ? WHERE id = ?";
+                $sql = "UPDATE tournament_matches SET player1_id = ?, player2_id = ?, player1_seed = ?, player2_seed = ? WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ssi", $p1, $p2, $matchId);
+                $stmt->bind_param("ssiii", $p1, $p2, $s1, $s2, $matchId);
                 $stmt->execute();
             } else if ($p1) {
-                $sql = "UPDATE tournament_matches SET player1_id = ?, status = 'completed', winner_id = ? WHERE id = ?";
+                $sql = "UPDATE tournament_matches SET player1_id = ?, player1_seed = ?, status = 'completed', winner_id = ? WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ssi", $p1, $p1, $matchId);
+                $stmt->bind_param("sisi", $p1, $s1, $p1, $matchId);
                 $stmt->execute();
                 $this->propagateWinner($matchId, $p1);
             } else if ($p2) {
-                $sql = "UPDATE tournament_matches SET player2_id = ?, status = 'completed', winner_id = ? WHERE id = ?";
+                $sql = "UPDATE tournament_matches SET player2_id = ?, player2_seed = ?, status = 'completed', winner_id = ? WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ssi", $p2, $p2, $matchId);
+                $stmt->bind_param("sisi", $p2, $s2, $p2, $matchId);
                 $stmt->execute();
                 $this->propagateWinner($matchId, $p2);
             } else {
@@ -213,7 +223,8 @@ class SingleEliminationEngine
 
     public function propagateWinner($matchId, $winnerId, $loserId = null)
     {
-        $sql = "SELECT next_match_id, next_match_slot, loser_next_match_id, loser_next_match_slot 
+        $sql = "SELECT next_match_id, next_match_slot, loser_next_match_id, loser_next_match_slot,
+                       player1_id, player2_id, player1_seed, player2_seed
                 FROM tournament_matches WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $matchId);
@@ -227,15 +238,16 @@ class SingleEliminationEngine
         if ($match['next_match_id']) {
             $nextMatchId = $match['next_match_id'];
             $slot = $match['next_match_slot'];
+            $winnerSeed = ($winnerId == $match['player1_id']) ? $match['player1_seed'] : $match['player2_seed'];
 
             if ($slot == '1') {
-                $sql = "UPDATE tournament_matches SET player1_id = ? WHERE id = ?";
+                $sql = "UPDATE tournament_matches SET player1_id = ?, player1_seed = ? WHERE id = ?";
             } else {
-                $sql = "UPDATE tournament_matches SET player2_id = ? WHERE id = ?";
+                $sql = "UPDATE tournament_matches SET player2_id = ?, player2_seed = ? WHERE id = ?";
             }
 
             $stmt = $this->conn->prepare($sql);
-            $stmt->bind_param("si", $winnerId, $nextMatchId);
+            $stmt->bind_param("sii", $winnerId, $winnerSeed, $nextMatchId);
             $stmt->execute();
 
             $this->checkAndHandleBye($nextMatchId, $slot, $matchId);
@@ -260,10 +272,20 @@ class SingleEliminationEngine
         if (!$lnmId || !$slot)
             return false;
 
-        $column = ($slot == '1') ? 'player1_id' : 'player2_id';
-        $sql = "UPDATE tournament_matches SET $column = ? WHERE id = ?";
+        $columnId = ($slot == '1') ? 'player1_id' : 'player2_id';
+        $columnSeed = ($slot == '1') ? 'player1_seed' : 'player2_seed';
+
+        // Find seed of loser in source match
+        $sqlS = "SELECT player1_id, player2_id, player1_seed, player2_seed FROM tournament_matches WHERE id = ?";
+        $stmtS = $this->conn->prepare($sqlS);
+        $stmtS->bind_param("i", $sourceMatchId);
+        $stmtS->execute();
+        $src = $stmtS->get_result()->fetch_assoc();
+        $loserSeed = ($loserId == $src['player1_id']) ? $src['player1_seed'] : $src['player2_seed'];
+
+        $sql = "UPDATE tournament_matches SET $columnId = ?, $columnSeed = ? WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("si", $loserId, $lnmId);
+        $stmt->bind_param("sii", $loserId, $loserSeed, $lnmId);
         $stmt->execute();
 
         $this->checkAndHandleBye($lnmId, $slot, $sourceMatchId);
@@ -335,10 +357,20 @@ class SingleEliminationEngine
     {
         if (!$matchId || !$slot)
             return;
-        $column = ($slot === '1') ? 'player1_id' : 'player2_id';
-        $sql = "UPDATE tournament_matches SET $column = ? WHERE id = ?";
+        $columnId = ($slot === '1') ? 'player1_id' : 'player2_id';
+        $columnSeed = ($slot === '1') ? 'player1_seed' : 'player2_seed';
+
+        // Find seed of player in source match
+        $sqlS = "SELECT player1_id, player2_id, player1_seed, player2_seed FROM tournament_matches WHERE id = ?";
+        $stmtS = $this->conn->prepare($sqlS);
+        $stmtS->bind_param("i", $sourceMatchId);
+        $stmtS->execute();
+        $src = $stmtS->get_result()->fetch_assoc();
+        $playerSeed = ($playerId == $src['player1_id']) ? $src['player1_seed'] : $src['player2_seed'];
+
+        $sql = "UPDATE tournament_matches SET $columnId = ?, $columnSeed = ? WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("si", $playerId, $matchId);
+        $stmt->bind_param("sii", $playerId, $playerSeed, $matchId);
         $stmt->execute();
 
         $this->checkAndHandleBye($matchId, $slot, $sourceMatchId);
@@ -433,5 +465,36 @@ class SingleEliminationEngine
                 $this->propagateWinner($nextMatchId, $currentAdvancer, null);
             }
         }
+    }
+
+    /**
+     * Generate standard seeding order for a bracket of size N
+     * (e.g. for N=8, returns [1, 8, 5, 4, 3, 6, 7, 2] -- wait, standard is 1-8, 4-5, 2-7, 3-6)
+     * Actually, standard "folding" usually means:
+     * 1 vs 8
+     * 4 vs 5
+     * 3 vs 6
+     * 2 vs 7
+     * This keeps 1 and 2 on opposite halves, 3 and 4 on opposite halves, etc.
+     */
+    private function getSeededOrder($n)
+    {
+        $order = [1];
+        while (count($order) < $n) {
+            $nextOrder = [];
+            $sum = count($order) * 2 + 1;
+            for ($i = 0; $i < count($order); $i++) {
+                $seed = $order[$i];
+                if ($i % 2 === 0) {
+                    $nextOrder[] = $seed;
+                    $nextOrder[] = $sum - $seed;
+                } else {
+                    $nextOrder[] = $sum - $seed;
+                    $nextOrder[] = $seed;
+                }
+            }
+            $order = $nextOrder;
+        }
+        return $order;
     }
 }

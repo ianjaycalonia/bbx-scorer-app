@@ -20,7 +20,7 @@ const toggleSwissRoundsField = (isSwiss) => {
         roundsInput.disabled = false;
         placementCoverageSelect.required = false;
         placementCoverageSelect.value = '';
-        
+
         if (!roundsInput.value) {
             roundsInput.value = defaultRounds;
         }
@@ -33,10 +33,10 @@ const toggleSwissRoundsField = (isSwiss) => {
     roundsInput.disabled = true;
     placementCoverageSelect.required = true;
     roundsInput.value = defaultRounds;
-    
+
     // Set default placement coverage if not already selected
     if (!placementCoverageSelect.value) {
-        placementCoverageSelect.value = '4'; // Default to 4th place
+        placementCoverageSelect.value = '3'; // Default to 3rd place
     }
 }
 
@@ -85,7 +85,7 @@ const setupTournamentTypeListener = () => {
     const isSwiss = tournamentTypeSelect.value === 'swiss';
     toggleSwissRoundsField(isSwiss);
 
-    tournamentTypeSelect.addEventListener('change', function() {
+    tournamentTypeSelect.addEventListener('change', function () {
         toggleSwissRoundsField(this.value === 'swiss');
     });
 };
@@ -270,7 +270,7 @@ const editTournament = (tournamentId) => {
     document.getElementById('tournamentDate').value = tournament.date ?? '';
     document.getElementById('tournamentLocation').value = tournament.location ?? '';
     document.getElementById('tournamentStadiums').value = tournament.number_of_stadiums ?? 1;
-    
+
     const visibilitySelect = document.getElementById('tournamentVisibility');
     if (visibilitySelect) {
         visibilitySelect.value = tournament.visibility ?? 'team_only';
@@ -403,7 +403,7 @@ const saveTournament = async () => {
             tournamentData.tournament_id = window.editingTournamentId;
         }
 
-        
+
         // Save to database via API
         const response = await fetch('api/tournaments/create.php', {
             method: 'POST',
@@ -483,7 +483,7 @@ const resetModalForm = () => {
     // Reset form
     document.getElementById('tournamentForm').reset();
     toggleSwissRoundsField(false);
-    
+
     const visibilitySelect = document.getElementById('tournamentVisibility');
     if (visibilitySelect) {
         visibilitySelect.value = 'team_only';
@@ -521,7 +521,7 @@ const handleLogout = async () => {
 window.createTournament = window.createTournament || (() => {
     // Reset form first to clear any previous state
     resetModalForm();
-    
+
     // Set Swiss as the default tournament type
     const tournamentTypeSelect = document.getElementById('tournamentType');
     if (tournamentTypeSelect) {
@@ -529,7 +529,7 @@ window.createTournament = window.createTournament || (() => {
         // Trigger the change event to show/hide appropriate fields
         toggleSwissRoundsField(true);
     }
-    
+
     // Show the tournament creation modal
     const modal = new bootstrap.Modal(document.getElementById('tournamentModal'));
     modal.show();

@@ -15,11 +15,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 try {
     require_once dirname(__DIR__) . '/config/database.php';
     session_start();
-    
-    class TournamentCreator {
+
+    class TournamentCreator
+    {
         private $conn;
-        
-        public function __construct($database) {
+
+        public function __construct($database)
+        {
             try {
                 $this->conn = $database->getConnection();
                 if (!$this->conn) {
@@ -29,32 +31,35 @@ try {
                 throw new Exception('Failed to initialize database connection: ' . $e->getMessage());
             }
         }
-        
-        public function createTournament($tournamentData) {
+
+        public function createTournament($tournamentData)
+        {
             try {
                 $userId = $_SESSION['user_id'] ?? 'fd55ab22-377e-404c-bab8-54a229940352';
-                
-                if (empty($tournamentData['name'])) return ['success' => false, 'message' => 'Tournament name is required'];
-                if (empty($tournamentData['tournament_type'])) return ['success' => false, 'message' => 'Tournament type is required'];
-                
+
+                if (empty($tournamentData['name']))
+                    return ['success' => false, 'message' => 'Tournament name is required'];
+                if (empty($tournamentData['tournament_type']))
+                    return ['success' => false, 'message' => 'Tournament type is required'];
+
                 $type = $tournamentData['tournament_type'];
                 if ($type === 'single_elimination' || $type === 'double_elimination') {
                     $rankTo = intval($tournamentData['rank_to'] ?? 0);
-                    if (!in_array($rankTo, [4, 5, 6, 7, 8])) {
-                        return ['success' => false, 'message' => 'Placement cutoff must be 4th, 5th, 6th, 7th, or 8th place for elimination tournaments'];
+                    if (!in_array($rankTo, [3, 4, 5, 6, 7, 8])) {
+                        return ['success' => false, 'message' => 'Placement cutoff must be 3rd, 4th, 5th, 6th, 7th, or 8th place for elimination tournaments'];
                     }
                 }
-                
+
                 $sql = "INSERT INTO tournaments (
                     name, date, location, tournament_type, visibility, number_of_stadiums, max_participants, 
                     status, rules, created_by, swiss_rounds, top_cut, rank_to
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?, ?)";
-                
+
                 $stmt = $this->conn->prepare($sql);
                 if (!$stmt) {
                     throw new Exception('Failed to prepare tournament insert query: ' . $this->conn->error);
                 }
-                
+
                 // Assign to variables for bind_param (pass by reference)
                 $name = $tournamentData['name'];
                 $date = $tournamentData['date'];
@@ -68,7 +73,8 @@ try {
                 $top_cut = $tournamentData['top_cut'];
                 $rank_to = $tournamentData['rank_to'] ?? 5;
 
-                $stmt->bind_param("sssssiissiii", 
+                $stmt->bind_param(
+                    "sssssiissiii",
                     $name,
                     $date,
                     $location,
@@ -82,19 +88,21 @@ try {
                     $top_cut,
                     $rank_to
                 );
-                
+
                 if (!$stmt->execute()) {
                     throw new Exception('Failed to execute tournament insert: ' . $stmt->error);
                 }
-                
+
                 $tournamentId = $this->conn->insert_id;
-                
+
                 $roleSql = "INSERT INTO tournament_roles (tournament_id, user_id, role, status) VALUES (?, ?, 'organizer', 'accepted')";
                 $roleStmt = $this->conn->prepare($roleSql);
-                if (!$roleStmt) throw new Exception('Failed to prepare role insert query: ' . $this->conn->error);
-                
+                if (!$roleStmt)
+                    throw new Exception('Failed to prepare role insert query: ' . $this->conn->error);
+
                 $roleStmt->bind_param("is", $tournamentId, $userId);
-                if (!$roleStmt->execute()) throw new Exception('Failed to assign organizer role: ' . $roleStmt->error);
+                if (!$roleStmt->execute())
+                    throw new Exception('Failed to assign organizer role: ' . $roleStmt->error);
 
                 return ['success' => true, 'message' => 'Tournament created successfully', 'tournament_id' => $tournamentId];
             } catch (Exception $e) {
@@ -102,8 +110,9 @@ try {
                 return ['success' => false, 'message' => 'Error creating tournament: ' . $e->getMessage()];
             }
         }
-    
-        public function updateTournament($tournamentId, $tournamentData) {
+
+        public function updateTournament($tournamentId, $tournamentData)
+        {
             $userId = $_SESSION['user_id'] ?? 'fd55ab22-377e-404c-bab8-54a229940352';
             try {
                 $sql = "SELECT created_by FROM tournaments WHERE id = ?";
@@ -112,19 +121,22 @@ try {
                 $stmt->execute();
                 $result = $stmt->get_result();
                 $tournament = $result->fetch_assoc();
-                
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
-                if ($tournament['created_by'] !== $userId) return ['success' => false, 'message' => 'Only tournament creator can update details'];
+
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
+                if ($tournament['created_by'] !== $userId)
+                    return ['success' => false, 'message' => 'Only tournament creator can update details'];
 
                 $type = $tournamentData['tournament_type'] ?? null;
                 if ($type === 'single_elimination' || $type === 'double_elimination') {
                     $rankTo = intval($tournamentData['rank_to'] ?? 0);
-                    if (!in_array($rankTo, [4, 5, 6, 7, 8])) return ['success' => false, 'message' => 'Placement cutoff must be 4th, 5th, 6th, 7th, or 8th place for elimination tournaments'];
+                    if (!in_array($rankTo, [3, 4, 5, 6, 7, 8]))
+                        return ['success' => false, 'message' => 'Placement cutoff must be 3rd, 4th, 5th, 6th, 7th, or 8th place for elimination tournaments'];
                 }
 
                 $sql = "UPDATE tournaments SET name = ?, date = ?, location = ?, tournament_type = ?, visibility = ?, number_of_stadiums = ?, max_participants = ?, rules = ?, swiss_rounds = ?, top_cut = ?, rank_to = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
-                
+
                 // Assign to variables for bind_param (pass by reference)
                 $name = $tournamentData['name'];
                 $date = $tournamentData['date'];
@@ -138,29 +150,31 @@ try {
                 $top_cut = $tournamentData['top_cut'];
                 $rank_to = $tournamentData['rank_to'] ?? 5;
 
-                $stmt->bind_param("sssssissiii", 
-                    $name, 
-                    $date, 
-                    $location, 
-                    $t_type, 
-                    $visibility, 
-                    $stadiums, 
-                    $max_participants, 
-                    $rules, 
-                    $swiss_rounds, 
-                    $top_cut, 
-                    $rank_to, 
+                $stmt->bind_param(
+                    "sssssissiii",
+                    $name,
+                    $date,
+                    $location,
+                    $t_type,
+                    $visibility,
+                    $stadiums,
+                    $max_participants,
+                    $rules,
+                    $swiss_rounds,
+                    $top_cut,
+                    $rank_to,
                     $tournamentId
                 );
                 $result = $stmt->execute();
-                
+
                 return $result ? ['success' => true, 'message' => 'Tournament updated successfully'] : ['success' => false, 'message' => 'Failed to update tournament'];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
-    
-        public function deleteTournament($tournamentId) {
+
+        public function deleteTournament($tournamentId)
+        {
             $userId = $_SESSION['user_id'] ?? 'fd55ab22-377e-404c-bab8-54a229940352';
             try {
                 $stmt = $this->conn->prepare("SELECT created_by FROM tournaments WHERE id = ?");
@@ -169,7 +183,8 @@ try {
                 $result = $stmt->get_result();
                 $tournament = $result->fetch_assoc();
 
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
                 // Not enforcing ownership for simplify deletion during dev if needed, or enforce it? Original code had it commented out?
                 // if ($tournament['created_by'] !== $userId) return ['success' => false, 'message' => 'Only tournament creator can delete tournament'];
 
@@ -178,7 +193,8 @@ try {
                     $tables = ['tournament_roles', 'tournament_judges', 'tournament_participants', 'tournament_matches', 'tournament_rounds'];
                     foreach ($tables as $table) {
                         $check = $this->conn->query("SHOW TABLES LIKE '$table'");
-                        if ($check && $check->num_rows > 0) $this->conn->query("DELETE FROM $table WHERE tournament_id = $tournamentId");
+                        if ($check && $check->num_rows > 0)
+                            $this->conn->query("DELETE FROM $table WHERE tournament_id = $tournamentId");
                     }
                     $deleteTournament = $this->conn->prepare("DELETE FROM tournaments WHERE id = ?");
                     $deleteTournament->bind_param("s", $tournamentId);
@@ -199,19 +215,22 @@ try {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
-        
-        public function registerPlayer($tournamentId, $playerName) {
+
+        public function registerPlayer($tournamentId, $playerName)
+        {
             $userId = $_SESSION['user_id'] ?? null;
-            if (!$userId) return ['success' => false, 'message' => 'Not authenticated'];
-            
+            if (!$userId)
+                return ['success' => false, 'message' => 'Not authenticated'];
+
             try {
                 $sql = "SELECT id, email, display_name, blader_name FROM users WHERE display_name = ? OR blader_name = ? OR email = ? LIMIT 1";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("sss", $playerName, $playerName, $playerName);
                 $stmt->execute();
                 $player = $stmt->get_result()->fetch_assoc();
-                
-                if (!$player) return ['success' => false, 'message' => 'Player not found: ' . $playerName];
+
+                if (!$player)
+                    return ['success' => false, 'message' => 'Player not found: ' . $playerName];
                 $playerId = $player['id'];
 
                 $sql = "SELECT id, status, max_participants FROM tournaments WHERE id = ?";
@@ -219,45 +238,51 @@ try {
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $tournament = $stmt->get_result()->fetch_assoc();
-                
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
-                if ($tournament['status'] !== 'upcoming') return ['success' => false, 'message' => 'Tournament registration is closed'];
-                
+
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
+                if ($tournament['status'] !== 'upcoming')
+                    return ['success' => false, 'message' => 'Tournament registration is closed'];
+
                 $sql = "SELECT COUNT(*) as count FROM tournament_participants WHERE tournament_id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $participantCount = $stmt->get_result()->fetch_assoc()['count'];
-                
-                if ($tournament['max_participants'] > 0 && $participantCount >= $tournament['max_participants']) return ['success' => false, 'message' => 'Tournament is full'];
-                
+
+                if ($tournament['max_participants'] > 0 && $participantCount >= $tournament['max_participants'])
+                    return ['success' => false, 'message' => 'Tournament is full'];
+
                 $sql = "SELECT id FROM tournament_participants WHERE tournament_id = ? AND user_id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $playerId);
                 $stmt->execute();
-                if ($stmt->get_result()->num_rows > 0) return ['success' => false, 'message' => 'Player already registered'];
-                
+                if ($stmt->get_result()->num_rows > 0)
+                    return ['success' => false, 'message' => 'Player already registered'];
+
                 $sql = "INSERT INTO tournament_participants (tournament_id, user_id) VALUES (?, ?)";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $playerId);
                 $result = $stmt->execute();
-                
+
                 return $result ? ['success' => true, 'message' => 'Player registered successfully'] : ['success' => false, 'message' => 'Registration failed'];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
-        
-        public function getTournamentDetails($tournamentId) {
+
+        public function getTournamentDetails($tournamentId)
+        {
             try {
                 $sql = "SELECT t.*, u.display_name as creator_name, u.avatar_url as creator_avatar FROM tournaments t LEFT JOIN users u ON t.created_by = u.id WHERE t.id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $tournament = $stmt->get_result()->fetch_assoc();
-                
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
-                
+
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
+
                 $sql = "SELECT tr.*, u.display_name, u.blader_name, u.avatar_url FROM tournament_roles tr LEFT JOIN users u ON tr.user_id = u.id WHERE tr.tournament_id = ? ORDER BY tr.assigned_at";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
@@ -266,147 +291,170 @@ try {
                 $people = [];
                 $participantCount = 0;
                 $judgeCount = 0;
-                
+
                 while ($row = $result->fetch_assoc()) {
                     $people[] = $row;
                     $roles = $row['role'];
                     if (strpos($roles, 'player') !== false || strpos($roles, 'both') !== false || strpos($roles, 'organizer') !== false) {
-                        if (strpos($roles, 'player') !== false || strpos($roles, 'both') !== false) $participantCount++;
+                        if (strpos($roles, 'player') !== false || strpos($roles, 'both') !== false)
+                            $participantCount++;
                     }
-                    if (strpos($roles, 'judge') !== false || strpos($roles, 'both') !== false) $judgeCount++;
+                    if (strpos($roles, 'judge') !== false || strpos($roles, 'both') !== false)
+                        $judgeCount++;
                 }
-                
+
                 return ['success' => true, 'tournament' => $tournament, 'people' => $people, 'participant_count' => $participantCount, 'judge_count' => $judgeCount];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
-        
-        public function removePlayer($tournamentId, $userId) {
+
+        public function removePlayer($tournamentId, $userId)
+        {
             $sessionUserId = $_SESSION['user_id'] ?? null;
-            if (!$sessionUserId) return ['success' => false, 'message' => 'Not authenticated'];
-            
+            if (!$sessionUserId)
+                return ['success' => false, 'message' => 'Not authenticated'];
+
             try {
                 $sql = "SELECT id, created_by FROM tournaments WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $tournament = $stmt->get_result()->fetch_assoc();
-                
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
-                if ($tournament['created_by'] !== $sessionUserId) return ['success' => false, 'message' => 'Only tournament creator can remove players'];
-                
+
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
+                if ($tournament['created_by'] !== $sessionUserId)
+                    return ['success' => false, 'message' => 'Only tournament creator can remove players'];
+
                 $sql = "SELECT id FROM tournament_participants WHERE tournament_id = ? AND user_id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $userId);
                 $stmt->execute();
-                if ($stmt->get_result()->num_rows === 0) return ['success' => false, 'message' => 'Player not found in tournament'];
-                
+                if ($stmt->get_result()->num_rows === 0)
+                    return ['success' => false, 'message' => 'Player not found in tournament'];
+
                 $sql = "DELETE FROM tournament_participants WHERE tournament_id = ? AND user_id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $userId);
-                
+
                 return $stmt->execute() ? ['success' => true, 'message' => 'Player removed successfully'] : ['success' => false, 'message' => 'Failed to remove player'];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
-        
-        public function assignJudge($tournamentId, $userId) {
+
+        public function assignJudge($tournamentId, $userId)
+        {
             $sessionUserId = $_SESSION['user_id'] ?? null;
-            if (!$sessionUserId) return ['success' => false, 'message' => 'Not authenticated'];
-            
+            if (!$sessionUserId)
+                return ['success' => false, 'message' => 'Not authenticated'];
+
             try {
                 $sql = "SELECT id, created_by FROM tournaments WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $tournament = $stmt->get_result()->fetch_assoc();
-                
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
-                if ($tournament['created_by'] !== $sessionUserId) return ['success' => false, 'message' => 'Only tournament creator can assign judges'];
-                
+
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
+                if ($tournament['created_by'] !== $sessionUserId)
+                    return ['success' => false, 'message' => 'Only tournament creator can assign judges'];
+
                 $sql = "SELECT id FROM tournament_judges WHERE tournament_id = ? AND user_id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $userId);
                 $stmt->execute();
-                if ($stmt->get_result()->num_rows > 0) return ['success' => false, 'message' => 'User is already assigned as a judge'];
-                
+                if ($stmt->get_result()->num_rows > 0)
+                    return ['success' => false, 'message' => 'User is already assigned as a judge'];
+
                 $sql = "INSERT INTO tournament_judges (tournament_id, user_id) VALUES (?, ?)";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $userId);
-                
+
                 return $stmt->execute() ? ['success' => true, 'message' => 'Judge assigned successfully'] : ['success' => false, 'message' => 'Failed to assign judge'];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
-        
-        public function getTournamentJudges($tournamentId) {
+
+        public function getTournamentJudges($tournamentId)
+        {
             try {
                 $sql = "SELECT tj.id, tj.user_id, tj.assigned_at, u.email, u.display_name, u.blader_name FROM tournament_judges tj JOIN users u ON tj.user_id = u.id WHERE tj.tournament_id = ? ORDER BY tj.assigned_at ASC";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $judges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-                
+
                 return ['success' => true, 'judges' => $judges, 'count' => count($judges)];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
-        
-        public function removeJudge($tournamentId, $userId) {
+
+        public function removeJudge($tournamentId, $userId)
+        {
             $sessionUserId = $_SESSION['user_id'] ?? null;
-            if (!$sessionUserId) return ['success' => false, 'message' => 'Not authenticated'];
-            
+            if (!$sessionUserId)
+                return ['success' => false, 'message' => 'Not authenticated'];
+
             try {
                 $sql = "SELECT id, created_by FROM tournaments WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $tournament = $stmt->get_result()->fetch_assoc();
-                
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
-                if ($tournament['created_by'] !== $sessionUserId) return ['success' => false, 'message' => 'Only tournament creator can remove judges'];
-                
+
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
+                if ($tournament['created_by'] !== $sessionUserId)
+                    return ['success' => false, 'message' => 'Only tournament creator can remove judges'];
+
                 $sql = "SELECT id FROM tournament_judges WHERE tournament_id = ? AND user_id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $userId);
                 $stmt->execute();
-                if ($stmt->get_result()->num_rows === 0) return ['success' => false, 'message' => 'Judge not found in tournament'];
-                
+                if ($stmt->get_result()->num_rows === 0)
+                    return ['success' => false, 'message' => 'Judge not found in tournament'];
+
                 $sql = "DELETE FROM tournament_judges WHERE tournament_id = ? AND user_id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $tournamentId, $userId);
-                
+
                 return $stmt->execute() ? ['success' => true, 'message' => 'Judge removed successfully'] : ['success' => false, 'message' => 'Failed to remove judge'];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }
 
-        public function updateTournamentStatus($tournamentId, $status) {
+        public function updateTournamentStatus($tournamentId, $status)
+        {
             $userId = $_SESSION['user_id'] ?? null;
-            if (!$userId) return ['success' => false, 'message' => 'Not authenticated'];
-            
+            if (!$userId)
+                return ['success' => false, 'message' => 'Not authenticated'];
+
             try {
                 $sql = "SELECT created_by FROM tournaments WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("s", $tournamentId);
                 $stmt->execute();
                 $tournament = $stmt->get_result()->fetch_assoc();
-                
-                if (!$tournament) return ['success' => false, 'message' => 'Tournament not found'];
-                if ($tournament['created_by'] !== $userId) return ['success' => false, 'message' => 'Only tournament creator can update status'];
-                
+
+                if (!$tournament)
+                    return ['success' => false, 'message' => 'Tournament not found'];
+                if ($tournament['created_by'] !== $userId)
+                    return ['success' => false, 'message' => 'Only tournament creator can update status'];
+
                 $validStatuses = ['upcoming', 'ongoing', 'completed'];
-                if (!in_array($status, $validStatuses)) return ['success' => false, 'message' => 'Invalid tournament status'];
-                
+                if (!in_array($status, $validStatuses))
+                    return ['success' => false, 'message' => 'Invalid tournament status'];
+
                 $sql = "UPDATE tournaments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
                 $stmt->bind_param("ss", $status, $tournamentId);
-                
+
                 return $stmt->execute() ? ['success' => true, 'message' => 'Tournament status updated successfully'] : ['success' => false, 'message' => 'Status update failed'];
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
@@ -417,17 +465,17 @@ try {
     // Handle API requests
     $database = new Database();
     $tournamentCreator = new TournamentCreator($database);
-    
+
     $method = $_SERVER['REQUEST_METHOD'];
-    
+
     // Initialize response to ensure it's always defined
     $response = ['success' => false, 'message' => 'Unknown error occurred'];
-    
+
     // Debug logging
     $rawInput = file_get_contents('php://input'); // read once so we can reuse
     error_log("[create.php] Method: " . $method);
     error_log("[create.php] Raw POST data: " . ($rawInput === false ? 'FALSE' : $rawInput));
-    
+
     // Get action from POST data (form-urlencoded) or GET parameters
     $postData = [];
     if ($method === 'POST') {
@@ -442,13 +490,13 @@ try {
         }
     }
     $action = $postData['action'] ?? $_GET['action'] ?? '';
-    
+
     error_log("[create.php] Parsed action: " . $action);
 
     if ($method === 'POST' && empty($postData)) {
         error_log('[create.php] WARNING: POST request but no payload parsed');
     }
-    
+
     switch ($action) {
         case 'create':
             if ($method === 'POST') {
@@ -460,7 +508,7 @@ try {
                     $response = ['success' => false, 'message' => 'Tournament type is required'];
                     break;
                 }
-                
+
                 $tournamentData = [
                     'name' => $postData['name'] ?? '',
                     'date' => $postData['date'] ?? null,
@@ -480,7 +528,7 @@ try {
                 $response = ['success' => false, 'message' => 'Invalid request method for create action'];
             }
             break;
-            
+
         case 'update':
             if ($method === 'POST' && isset($postData['tournament_id'])) {
                 $tournamentData = [
@@ -502,7 +550,7 @@ try {
                 $response = ['success' => false, 'message' => 'Invalid request for update action'];
             }
             break;
-            
+
         case 'delete':
             if ($method === 'POST' && isset($postData['tournament_id'])) {
                 $response = $tournamentCreator->deleteTournament($postData['tournament_id']);
@@ -520,18 +568,18 @@ try {
                 $response = ['success' => false, 'message' => 'tournament_id is required'];
             }
             break;
-            
+
         default:
             http_response_code(400);
             $response = ['success' => false, 'message' => 'Unknown or missing action: ' . $action];
             break;
     }
-    
+
 } catch (Throwable $e) {
     error_log('Unhandled exception in create.php: ' . $e->getMessage());
     http_response_code(500);
     $response = [
-        'success' => false, 
+        'success' => false,
         'message' => 'Server error: ' . $e->getMessage()
     ];
 }

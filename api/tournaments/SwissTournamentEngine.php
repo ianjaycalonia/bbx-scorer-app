@@ -110,7 +110,6 @@ class SwissTournamentEngine
 
     /**
      * Generate Top Cut (Stage 2)
-     * This logic is self-contained and does NOT call SingleEliminationEngine.
      */
     public function generateTopCut($topCut, $rankTo = 5)
     {
@@ -123,18 +122,16 @@ class SwissTournamentEngine
 
         $topPlayers = array_slice($standings, 0, $topCut);
 
-        // Fold seeding
-        $seededPlayers = [];
-        $half = $topCut / 2;
-        for ($i = 0; $i < $half; $i++) {
-            $seededPlayers[] = ['id' => $topPlayers[$i]['id']];
-            $seededPlayers[] = ['id' => $topPlayers[$topCut - 1 - $i]['id']];
-        }
+        // Map to expected format for SingleEliminationEngine
+        $players = array_map(function ($p) {
+            return ['id' => $p['id']];
+        }, $topPlayers);
 
-        // Generate Stage 2 Bracket (Internal Logic Reuse)
         $this->conn->begin_transaction();
         try {
-            $this->generateEliminationBracket($seededPlayers, false, 2, $rankTo);
+            $engine = new SingleEliminationEngine($this->conn, $this->tournamentId);
+            // $shuffle = false to preserve seed order for folding
+            $engine->generate($players, false, 2, $rankTo);
 
             $sql = "UPDATE tournaments SET current_stage = 2 WHERE id = ?";
             $stmt = $this->conn->prepare($sql);
@@ -143,8 +140,8 @@ class SwissTournamentEngine
 
             $this->conn->commit();
 
-            $engine = new MatchEngine(new Database(), $this->tournamentId);
-            $engine->runAssignment();
+            $engineMatch = new MatchEngine(new Database(), $this->tournamentId);
+            $engineMatch->runAssignment();
 
             return ['success' => true, 'message' => "Top $topCut bracket generated."];
         } catch (Exception $e) {
@@ -154,131 +151,12 @@ class SwissTournamentEngine
     }
 
     /**
-     * Self-contained Elimination Generation for Swiss Top Cut
-     */
-    private function generateEliminationBracket($players, $shuffle, $stage, $rankTo)
-    {
-        // Since we are preserving seed order for Top Cut, we usually don't shuffle
-        if ($shuffle)
-            shuffle($players);
-
-        $numPlayers = count($players);
-        $numRounds = ceil(log($numPlayers, 2));
-        $bracketSize = pow(2, $numRounds);
-
-        $rounds = [];
-        for ($r = 1; $r <= $numRounds; $r++) {
-            $sql = "INSERT INTO tournament_rounds (tournament_id, round_number, stage, status) VALUES (?, ?, ?, 'scheduled')";
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bind_param("iii", $this->tournamentId, $r, $stage);
-            $stmt->execute();
-            $rounds[$r] = $stmt->insert_id;
-        }
-
-        // Set Round 1 as active
-        $sql = "UPDATE tournament_rounds SET status = 'active' WHERE id = ?";
-        $stmt = $this->conn->prepare($sql);
-        $stmt->bind_param("i", $rounds[1]);
-        $stmt->execute();
-
-        $matchesByRound = [];
-        for ($r = $numRounds; $r >= 1; $r--) {
-            $matchesInRound = pow(2, $numRounds - $r);
-            for ($m = 1; $m <= $matchesInRound; $m++) {
-                $nextMatchId = null;
-                $nextSlot = '1';
-                if ($r < $numRounds) {
-                    $parentMatchIndex = ceil($m / 2);
-                    $nextMatchId = $matchesByRound[$r + 1][$parentMatchIndex - 1];
-                    $nextSlot = ($m % 2 != 0) ? '1' : '2';
-                }
-                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, status, next_match_id, next_match_slot) 
-                        VALUES (?, ?, ?, 'scheduled', ?, ?)";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("iiiii", $this->tournamentId, $rounds[$r], $m, $nextMatchId, $nextSlot);
-                $stmt->execute();
-                $matchesByRound[$r][] = $stmt->insert_id;
-            }
-        }
-
-        // Placement Logic (Simplified Copy of Single Elimin logic)
-        if ($rankTo >= 3 && $numRounds >= 2) {
-            $finalsRoundId = $rounds[$numRounds];
-            $semiRound = $numRounds - 1;
-            $semiMatches = $matchesByRound[$semiRound];
-
-            $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, status) VALUES (?, ?, 99, 'scheduled')";
-            $stmt = $this->conn->prepare($sql);
-            $stmt->bind_param("ii", $this->tournamentId, $finalsRoundId);
-            $stmt->execute();
-            $thirdMatchId = $stmt->insert_id;
-            for ($i = 0; $i < 2; $i++) {
-                $slot = (string) ($i + 1);
-                $sql = "UPDATE tournament_matches SET loser_next_match_id = ?, loser_next_match_slot = ? WHERE id = ?";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("isi", $thirdMatchId, $slot, $semiMatches[$i]);
-                $stmt->execute();
-            }
-
-            if ($rankTo >= 5 && $numRounds >= 3) {
-                $quarterRound = $numRounds - 2;
-                $qfMatches = $matchesByRound[$quarterRound];
-                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, status) VALUES (?, ?, 98, 'scheduled')";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ii", $this->tournamentId, $finalsRoundId);
-                $stmt->execute();
-                $fifthMatchId = $stmt->insert_id;
-                for ($i = 0; $i < 2; $i++) {
-                    $slot = (string) ($i + 1);
-                    $sql = "UPDATE tournament_matches SET loser_next_match_id = ?, loser_next_match_slot = ? WHERE id = ?";
-                    $stmt = $this->conn->prepare($sql);
-                    $stmt->bind_param("isi", $fifthMatchId, $slot, $qfMatches[$i]);
-                    $stmt->execute();
-                }
-
-                // Add 7th/8th and 9th/10th support if needed (skipping for brevity unless strictly required to match 1:1, but safe to include)
-            }
-        }
-
-        // Fill Round 1
-        $round1Matches = $matchesByRound[1];
-        for ($i = 0; $i < $bracketSize; $i += 2) {
-            $matchId = $round1Matches[$i / 2];
-            $p1 = $players[$i]['id'] ?? null;
-            $p2 = $players[$i + 1]['id'] ?? null;
-            if ($p1 && $p2) {
-                $sql = "UPDATE tournament_matches SET player1_id = ?, player2_id = ? WHERE id = ?";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ssi", $p1, $p2, $matchId);
-                $stmt->execute();
-            } else if ($p1) {
-                $sql = "UPDATE tournament_matches SET player1_id = ?, status = 'completed', winner_id = ? WHERE id = ?";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ssi", $p1, $p1, $matchId);
-                $stmt->execute();
-                $this->propagateWinner($matchId, $p1);
-            } else if ($p2) {
-                $sql = "UPDATE tournament_matches SET player2_id = ?, status = 'completed', winner_id = ? WHERE id = ?";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ssi", $p2, $p2, $matchId);
-                $stmt->execute();
-                $this->propagateWinner($matchId, $p2);
-            } else {
-                $sql = "UPDATE tournament_matches SET status = 'completed' WHERE id = ?";
-                $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("i", $matchId);
-                $stmt->execute();
-                $this->propagateWinner($matchId, null);
-            }
-        }
-    }
-
-    /**
      * Winner Propagation for Swiss Stage 2
      */
     public function propagateWinner($matchId, $winnerId, $loserId = null)
     {
-        $sql = "SELECT next_match_id, next_match_slot, loser_next_match_id, loser_next_match_slot 
+        $sql = "SELECT next_match_id, next_match_slot, loser_next_match_id, loser_next_match_slot,
+                       player1_id, player2_id, player1_seed, player2_seed
                 FROM tournament_matches WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $matchId);
@@ -287,26 +165,36 @@ class SwissTournamentEngine
         if (!$match)
             return;
 
+        // 1. Propagate Winner
         if ($match['next_match_id']) {
-            $column = ($match['next_match_slot'] == '1') ? 'player1_id' : 'player2_id';
-            $sql = "UPDATE tournament_matches SET $column = ? WHERE id = ?";
+            $slot = $match['next_match_slot'];
+            $winnerSeed = ($winnerId == $match['player1_id']) ? $match['player1_seed'] : $match['player2_seed'];
+            $columnId = ($slot == '1') ? 'player1_id' : 'player2_id';
+            $columnSeed = ($slot == '1') ? 'player1_seed' : 'player2_seed';
+
+            $sql = "UPDATE tournament_matches SET $columnId = ?, $columnSeed = ? WHERE id = ?";
             $stmt = $this->conn->prepare($sql);
-            $stmt->bind_param("si", $winnerId, $match['next_match_id']);
+            $stmt->bind_param("sii", $winnerId, $winnerSeed, $match['next_match_id']);
             $stmt->execute();
-            $this->checkAndHandleBye($match['next_match_id'], $match['next_match_slot']);
+            $this->checkAndHandleBye($match['next_match_id'], $slot, $matchId);
         }
 
+        // 2. Propagate Loser (Consolation)
         if ($loserId && $match['loser_next_match_id']) {
-            $column = ($match['loser_next_match_slot'] == '1') ? 'player1_id' : 'player2_id';
-            $sql = "UPDATE tournament_matches SET $column = ? WHERE id = ?";
+            $slot = $match['loser_next_match_slot'];
+            $loserSeed = ($loserId == $match['player1_id']) ? $match['player1_seed'] : $match['player2_seed'];
+            $columnId = ($slot == '1') ? 'player1_id' : 'player2_id';
+            $columnSeed = ($slot == '1') ? 'player1_seed' : 'player2_seed';
+
+            $sql = "UPDATE tournament_matches SET $columnId = ?, $columnSeed = ? WHERE id = ?";
             $stmt = $this->conn->prepare($sql);
-            $stmt->bind_param("si", $loserId, $match['loser_next_match_id']);
+            $stmt->bind_param("sii", $loserId, $loserSeed, $match['loser_next_match_id']);
             $stmt->execute();
-            $this->checkAndHandleBye($match['loser_next_match_id'], $match['loser_next_match_slot']);
+            $this->checkAndHandleBye($match['loser_next_match_id'], $slot, $matchId);
         }
     }
 
-    private function checkAndHandleBye($matchId, $slot)
+    private function checkAndHandleBye($matchId, $slot, $sourceMatchId = null)
     {
         $otherSlot = ($slot == '1') ? '2' : '1';
         $sql = "SELECT id, status, winner_id FROM tournament_matches 
@@ -318,18 +206,21 @@ class SwissTournamentEngine
         $otherParent = $stmt->get_result()->fetch_assoc();
 
         if ($otherParent && $otherParent['status'] === 'completed' && !$otherParent['winner_id']) {
-            $sql = "SELECT player1_id, player2_id FROM tournament_matches WHERE id = ?";
+            $sql = "SELECT player1_id, player2_id, player1_seed, player2_seed FROM tournament_matches WHERE id = ?";
             $stmt = $this->conn->prepare($sql);
             $stmt->bind_param("i", $matchId);
             $stmt->execute();
             $m = $stmt->get_result()->fetch_assoc();
-            $advancer = ($slot == '1') ? $m['player1_id'] : $m['player2_id'];
-            if ($advancer) {
+
+            $advancerBySlot = ($slot == '1') ? $m['player1_id'] : $m['player2_id'];
+            if ($advancerBySlot) {
+                // Determine which player actually advanced (might be player1 or player2)
+                // Actually if we just moved a player into $slot, they are the advancer.
                 $sql = "UPDATE tournament_matches SET status = 'completed', winner_id = ? WHERE id = ?";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("si", $advancer, $matchId);
+                $stmt->bind_param("si", $advancerBySlot, $matchId);
                 $stmt->execute();
-                $this->propagateWinner($matchId, $advancer, null);
+                $this->propagateWinner($matchId, $advancerBySlot, null);
             }
         }
     }

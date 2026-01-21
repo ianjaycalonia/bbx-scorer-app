@@ -160,6 +160,9 @@ const refreshBracket = async (showNotification = false) => {
 
         // Check if tournament is eligible for Stage 2 transition
         checkStage2Eligibility(allRounds);
+
+        // Check if tournament is eligible to be finished
+        checkTournamentCompletion(allRounds);
     } catch (error) {
         console.error('Error fetching bracket state:', error);
     }
@@ -312,12 +315,13 @@ const renderEliminationTree = (container, rounds) => {
         return;
     }
 
-    container.innerHTML = rounds.map(round => renderRoundBlock(round, true, bracketLayout)).join('');
+    const totalRounds = rounds.length;
+    container.innerHTML = rounds.map(round => renderRoundBlock(round, true, bracketLayout, totalRounds)).join('');
 
     setupBracketConnectorOverlay(container, rounds);
 };
 
-const renderRoundBlock = (round, isElimination, layout) => {
+const renderRoundBlock = (round, isElimination, layout, totalRounds) => {
     // Separate bye matches from regular matches
     const regularMatches = [];
     const byeMatches = [];
@@ -368,7 +372,7 @@ const renderRoundBlock = (round, isElimination, layout) => {
     return `
     <div class="bracket-round">
         <div class="round-header">
-            <span class="round-title">${isElimination ? getRoundLabel(round.round_number, Number(round.stage) === 2 ? 3 : 4) : `Round ${round.round_number}`}</span>
+            <span class="round-title">${isElimination ? getRoundLabel(round.round_number, totalRounds) : `Round ${round.round_number}`}</span>
             <span class="badge-status ${round.status === 'active' ? 'active' : 'scheduled'}">${round.status}</span>
         </div>
         <div class="match-list">
@@ -400,7 +404,24 @@ const renderRoundBlock = (round, isElimination, layout) => {
             if (layoutInfo && !isSpecial) {
                 gridStyleAttr = ` style="grid-row: ${layoutInfo.rowStart} / span ${layoutInfo.rowSpan};"`;
             } else if (isSpecial) {
-                gridStyleAttr = ` style="grid-row: auto;"`;
+                let extraStyles = '';
+                // For the finals round, pull special matches much closer to the center
+                if (round.round_number === totalRounds && specialIndex === 0) {
+                    const finalsMatch = round.matches.find(m => (m.match_number || 0) < 90);
+                    const finalsLayout = finalsMatch ? layout.layoutMap.get(getNumericMatchId(finalsMatch.id)) : null;
+                    if (finalsLayout) {
+                        const rowSpan = finalsLayout.rowSpan;
+                        // Calculation: RowHeight is 280. Center is RowSpan * 140. Card Bottom is center + 95.
+                        // Next row starts at RowSpan * 280. Offset to label is +5px.
+                        // Target is 100px from card bottom.
+                        const pullUp = Math.max(0, (rowSpan * 140) - 190);
+                        if (pullUp > 0) {
+                            extraStyles = ` margin-top: -${pullUp}px;`;
+                        }
+                    }
+                }
+                gridStyleAttr = ` style="grid-row: auto;${extraStyles}"`;
+                specialIndex++;
             }
         }
 
@@ -849,6 +870,7 @@ const renderMatchCard = (match, isSingleElimStage) => {
             <div class="player-vs">
                 <div class="player-row ${isP1Winner ? 'winner' : (isP2Winner ? 'loser' : '')}">
                     <div class="player-topline">
+                        ${match.player1.seed ? `<span class="seed-number">${match.player1.seed}</span>` : ''}
                         <span class="player-name">${escapeHtml(match.player1.name)}</span>
                         <div class="player-meta">
                             <span class="match-score font-monospace fw-bold">${player1Score}</span>
@@ -860,6 +882,7 @@ const renderMatchCard = (match, isSingleElimStage) => {
                 </div>
                 <div class="player-row ${isP2Winner ? 'winner' : (isP1Winner ? 'loser' : '')}">
                     <div class="player-topline">
+                        ${match.player2.seed ? `<span class="seed-number">${match.player2.seed}</span>` : ''}
                         <span class="player-name">${escapeHtml(match.player2.name)}</span>
                         <div class="player-meta">
                             <span class="match-score font-monospace fw-bold">${player2Score}</span>
@@ -1098,7 +1121,12 @@ const promptMatchScore = async (matchId, p1Name, p2Name, currentP1 = 0, currentP
         }
 
         if (label === 'Finals' || label === 'Semi-Finals' || label === 'Battle for 3rd') {
-            minPoints = 7;
+            // Only apply 7-point rule for high-stakes elimination rounds (Finals, Semis, 3rd Place)
+            // Note: Quarter-Finals and earlier always remain at 4 points as per user preference.
+            const isSwissStage1 = currentTournament?.tournament_type === 'swiss' && round.stage === 1;
+            if (!isSwissStage1) {
+                minPoints = 7;
+            }
         }
     }
 
@@ -1301,6 +1329,84 @@ const advanceToTopCut = async () => {
         showToast('Failed to generate top cut bracket.', { variant: 'danger' });
     }
 }
+
+const checkTournamentCompletion = (rounds) => {
+    const completionContainer = document.getElementById('tournamentCompletionContainer');
+    if (!completionContainer) return;
+
+    if (!userCanManageStage2()) {
+        completionContainer.classList.add('d-none');
+        return;
+    }
+
+    if (!currentTournament || currentTournament.status === 'completed') {
+        completionContainer.classList.add('d-none');
+        return;
+    }
+
+    // Determine the final stage
+    const maxStage = Math.max(...rounds.map(r => r.stage), 1);
+
+    // Switch logic based on tournament type
+    // If Swiss and in Stage 1, we don't finish yet (wait for Top Cut)
+    if (currentTournament.tournament_type === 'swiss' && maxStage === 1) {
+        completionContainer.classList.add('d-none');
+        return;
+    }
+
+    // Check if ALL matches in the final stage are completed
+    const finalStageRounds = rounds.filter(r => r.stage === maxStage);
+    if (finalStageRounds.length === 0) {
+        completionContainer.classList.add('d-none');
+        return;
+    }
+
+    const isFullyScored = finalStageRounds.every(round => {
+        return round.matches && round.matches.length > 0 &&
+            round.matches.every(match => match.status === 'completed' || match.is_bye);
+    });
+
+    if (isFullyScored) {
+        completionContainer.classList.remove('d-none');
+    } else {
+        completionContainer.classList.add('d-none');
+    }
+};
+
+const finishTournament = async () => {
+    const confirmed = await showConfirmation({
+        title: 'Finish Tournament',
+        message: 'Are you sure you want to finish the tournament? This will finalize all rankings and winners. This action cannot be undone.',
+        confirmText: 'Finish & Finalize',
+        confirmVariant: 'success'
+    });
+
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch('api/tournaments/rounds.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                action: 'endTournament',
+                tournament_id: currentTournamentId
+            })
+        });
+        const result = await response.json();
+        if (result.success) {
+            showToast(result.message, { variant: 'success' });
+            // Redirect to tournament details page
+            setTimeout(() => {
+                window.location.href = `tournament-detail.html?id=${currentTournamentId}`;
+            }, 1500);
+        } else {
+            showToast(result.message, { variant: 'danger' });
+        }
+    } catch (error) {
+        console.error('Error finishing tournament:', error);
+        showToast('Failed to finish tournament.', { variant: 'danger' });
+    }
+};
 
 // Switch Stage View
 const switchStage = (stage) => {
