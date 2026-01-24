@@ -50,7 +50,7 @@ class SettingsManager {
     // Populate form fields with database data
     populateFields() {
         // Users table fields
-        this.setFieldText('bladerName', this.currentData.blader_name || '');
+        this.setFieldText('realName', this.currentData.blader_name || '');
         this.setFieldText('displayName', this.currentData.display_name || '');
         this.setFieldText('email', this.currentData.email || '');
         
@@ -96,7 +96,7 @@ class SettingsManager {
     // Setup editable fields
     setupEditableFields() {
         const editableFields = [
-            { id: 'realNameField', dataKey: 'blader_name', inputId: 'bladerNameInput' },
+            { id: 'realNameField', dataKey: 'blader_name', inputId: 'realNameInput' },
             { id: 'displayNameField', dataKey: 'display_name', inputId: 'displayNameInput' },
             { id: 'locationField', dataKey: 'location', inputId: 'locationInput' },
             { id: 'preferredTypeField', dataKey: 'preferred_beyblade_type', inputId: 'preferredTypeInput' },
@@ -121,7 +121,7 @@ class SettingsManager {
     makeEditable(field) {
         const fieldElement = document.getElementById(field.id);
         // Fix the ID mapping issue
-        const textElementId = field.dataKey === 'blader_name' ? 'bladerName' : 
+        const textElementId = field.dataKey === 'blader_name' ? 'realName' : 
                               field.dataKey === 'display_name' ? 'displayName' :
                               field.dataKey === 'location' ? 'location' :
                               field.dataKey === 'preferred_beyblade_type' ? 'preferredType' :
@@ -170,7 +170,7 @@ class SettingsManager {
     restoreField(field) {
         const fieldElement = document.getElementById(field.id);
         // Fix the ID mapping issue
-        const textElementId = field.dataKey === 'blader_name' ? 'bladerName' : 
+        const textElementId = field.dataKey === 'blader_name' ? 'realName' : 
                               field.dataKey === 'display_name' ? 'displayName' :
                               field.dataKey === 'location' ? 'location' :
                               field.dataKey === 'preferred_beyblade_type' ? 'preferredType' :

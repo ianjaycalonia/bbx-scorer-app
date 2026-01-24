@@ -464,7 +464,11 @@ const saveTournament = async () => {
             // Reload tournaments list
             await loadTournaments();
 
-            showToast(window.editingTournamentId ? 'Tournament updated successfully!' : 'Tournament created successfully!', { variant: 'success' });
+            if (window.editingTournamentId) {
+                showToast('Tournament updated successfully!', { variant: 'success' });
+            } else {
+                window.location.href = `tournament-detail.html?id=${result.tournament_id}`;
+            }
         } else {
             const errorMessage = result.message || 'Unknown server error';
             showToast('Failed to ' + (window.editingTournamentId ? 'update' : 'create') + ' tournament: ' + errorMessage, { variant: 'danger' });

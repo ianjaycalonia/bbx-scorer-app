@@ -485,7 +485,16 @@ if (basename(__FILE__) == basename($_SERVER['SCRIPT_FILENAME'])) {
                 }
             }
 
-            $response = ['success' => true, 'rounds' => array_values($roundsData), 'byes' => $mgr->getByeData()];
+            require_once __DIR__ . '/match_engine.php';
+            $engine = new MatchEngine($database, $tournamentId);
+            $stadiumBindings = $engine->getPublicBindings();
+
+            $response = [
+                'success' => true,
+                'rounds' => array_values($roundsData),
+                'byes' => $mgr->getByeData(),
+                'stadium_bindings' => $stadiumBindings
+            ];
             break;
 
         case 'getStandings':

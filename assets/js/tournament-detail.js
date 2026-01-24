@@ -104,7 +104,7 @@ document.addEventListener('DOMContentLoaded', function () {
 // Load tournament details
 async function loadTournamentDetails(tournamentId) {
     try {
-        
+
         // Fetch fresh data from API
         const response = await fetch(`api/tournaments/create.php?action=getDetails&tournament_id=${tournamentId}`);
         const text = await response.text();
@@ -133,7 +133,7 @@ async function loadTournamentDetails(tournamentId) {
                     const hasOrganizerRole = result.people.some(p => p.user_id === currentUser.id && p.role === 'organizer');
 
                     if (!isCreator && !hasOrganizerRole) {
-                                                window.location.href = `tournament-bracket.html?id=${currentTournament.id}`;
+                        window.location.href = `tournament-bracket.html?id=${currentTournament.id}`;
                         return;
                     }
                 } else {
@@ -537,8 +537,9 @@ function displayPeople(people) {
         const isJudge = roles.includes('judge') || roles.includes('both');
         const isOrganizer = roles.includes('organizer');
         const isBoth = (roles.includes('player') && roles.includes('judge')) || roles.includes('both');
+        const isObserver = roles.includes('observer');
 
-        const roleClass = isBoth ? 'both-roles' : (isPlayer ? 'player-only' : (isJudge ? 'judge-only' : 'organizer-only'));
+        const roleClass = isBoth ? 'both-roles' : (isPlayer ? 'player-only' : (isJudge ? 'judge-only' : (isObserver ? 'observer-only' : 'organizer-only')));
         const avatarClass = roleClass;
         const displayName = person.display_name || person.blader_name || 'Unknown';
         const seedNumber = parseInt(person.seed, 10) || 0;
@@ -558,6 +559,9 @@ function displayPeople(people) {
         }
         if (isJudge) {
             roleBadges += '<span class="role-badge judge">Judge</span>';
+        }
+        if (isObserver) {
+            roleBadges += '<span class="role-badge observer">Observer</span>';
         }
 
         const actionButtons = locked ? '' : `
@@ -903,10 +907,10 @@ class RoleSelectionHandler {
 
             return `
                 <div class="row mb-3 align-items-center role-item" data-search="${displayName.toLowerCase()}">
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <strong>${displayName}</strong>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-8 text-md-end">
                         <div class="btn-group" role="group">
                             <input type="radio" class="btn-check" name="role-${index}" id="player-${index}" value="player" ${initialRole === 'player' ? 'checked' : ''}>
                             <label class="btn btn-outline-primary" for="player-${index}">Player</label>
@@ -916,6 +920,9 @@ class RoleSelectionHandler {
                             
                             <input type="radio" class="btn-check" name="role-${index}" id="both-${index}" value="both" ${initialRole === 'both' ? 'checked' : ''}>
                             <label class="btn btn-outline-warning" for="both-${index}">Both</label>
+
+                            <input type="radio" class="btn-check" name="role-${index}" id="observer-${index}" value="observer" ${initialRole === 'observer' ? 'checked' : ''}>
+                            <label class="btn btn-outline-info" for="observer-${index}">Observer</label>
                         </div>
                     </div>
                 </div>
@@ -937,10 +944,11 @@ class RoleSelectionHandler {
                             <div class="row align-items-center">
                                 <div class="col-md-6">
                                     <i class="bi bi-info-circle me-2"></i>
-                                    Set the role for each person. They can be a player, judge, or both.
+                                    Set the role for each person. They can be a player, judge, both, or observer.
                                     <div class="mt-2">
                                         <span class="badge bg-primary me-2">Players: <span id="modalPlayerCount">0</span></span>
-                                        <span class="badge bg-success">Judges: <span id="modalJudgeCount">0</span></span>
+                                        <span class="badge bg-success me-2">Judges: <span id="modalJudgeCount">0</span></span>
+                                        <span class="badge bg-info">Observers: <span id="modalObserverCount">0</span></span>
                                     </div>
                                 </div>
                                 <div class="col-md-6">
@@ -994,17 +1002,21 @@ class RoleSelectionHandler {
     updateCounters() {
         let playerCount = 0;
         let judgeCount = 0;
+        let observerCount = 0;
 
         this.selectedUsers.forEach((user, index) => {
             const selectedRole = this.modalEl.querySelector(`input[name="role-${index}"]:checked`)?.value || 'player';
             if (selectedRole === 'player' || selectedRole === 'both') playerCount++;
             if (selectedRole === 'judge' || selectedRole === 'both') judgeCount++;
+            if (selectedRole === 'observer') observerCount++;
         });
 
         const playerSpan = this.modalEl.querySelector('#modalPlayerCount');
         const judgeSpan = this.modalEl.querySelector('#modalJudgeCount');
+        const observerSpan = this.modalEl.querySelector('#modalObserverCount');
         if (playerSpan) playerSpan.textContent = playerCount;
         if (judgeSpan) judgeSpan.textContent = judgeCount;
+        if (observerSpan) observerSpan.textContent = observerCount;
     }
 
     confirm() {
@@ -1059,6 +1071,8 @@ async function editPersonRole(userId) {
             initialRole = 'both';
         } else if (person.role.includes('judge')) {
             initialRole = 'judge';
+        } else if (person.role.includes('observer')) {
+            initialRole = 'observer';
         }
 
         const personObj = {

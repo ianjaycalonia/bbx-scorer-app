@@ -6,6 +6,8 @@ let allRounds = [];
 let byeData = null;
 let currentTournamentParticipants = null;
 let currentViewStage = null;
+let stadiumBindings = [];
+let lastAssignmentKeys = new Set(); // To track which assignments we've already notified about
 
 // Bracket connector state
 let connectorResizeObserver = null;
@@ -139,6 +141,10 @@ const refreshBracket = async (showNotification = false) => {
 
         allRounds = result.rounds ?? [];
         byeData = result.byes ?? null;
+        stadiumBindings = result.stadium_bindings ?? [];
+
+        // Check for Judge Rotations/New Assignments
+        checkForJudgeRotations(allRounds, stadiumBindings);
 
         // Load tournament participants for bye name resolution
         await loadTournamentParticipants();
@@ -205,7 +211,10 @@ const renderStandings = (standings) => {
             <td>
                 <div class="player-cell">
                     <div class="player-avatar">${s.name.charAt(0).toUpperCase()}</div>
-                    <div class="player-name">${s.name}${isAdvanced ? ' <span class="badge badge-advanced">Advanced</span>' : ''}</div>
+                    <div class="player-name">
+                        ${s.seed ? `<span class="seed-number">${s.seed}</span>` : ''}
+                        ${s.name}${isAdvanced ? ' <span class="badge badge-advanced">Advanced</span>' : ''}
+                    </div>
                 </div>
             </td>
             <td class="text-center record-cell">
@@ -240,6 +249,7 @@ const renderRounds = (roundsData) => {
 
     // Common post-render actions
     scrollToJudgeAssignedMatch();
+    updatePlayerMatchButton();
 };
 
 const renderSwissBracket = (container, roundsData) => {
@@ -335,7 +345,11 @@ const renderRoundBlock = (round, isElimination, layout, totalRounds) => {
             const playerName = participant?.display_name || participant?.blader_name || `Player ID: ${playerId}`;
             byeMatches.push({
                 is_bye: true,
-                player1: { id: playerId, name: playerName },
+                player1: {
+                    id: playerId,
+                    name: playerName,
+                    seed: participant?.seed || 0
+                },
                 player2: null
             });
         });
@@ -383,7 +397,10 @@ const renderRoundBlock = (round, isElimination, layout, totalRounds) => {
         return `
                             <div class="bye-entry">
                                 <span class="bye-label">Bye:</span>
-                                <span class="badge bg-info">${escapeHtml(playerName)}</span>
+                                <span class="badge bg-info">
+                                    ${match.player1.seed ? `<span class="seed-number" style="background: rgba(255,255,255,0.2); margin-right: 4px; border-radius: 2px; padding: 0 4px;">${match.player1.seed}</span>` : ''}
+                                    ${escapeHtml(playerName)}
+                                </span>
                             </div>
                         `;
     }).join('')}
@@ -838,6 +855,7 @@ const renderMatchCard = (match, isSingleElimStage) => {
 
     // Determine if clickable
     const isJudge = currentUser && match.judge && String(currentUser.id) === String(match.judge.id);
+    const isPlayer = currentUser && (String(currentUser.id) === String(match.player1.id) || String(currentUser.id) === String(match.player2?.id));
     const isCreator = currentTournament && currentUser && String(currentTournament.created_by) === String(currentUser.id);
     const isOrganizer = currentUser && Array.isArray(currentTournamentPeople) && currentTournamentPeople.some(person => {
         if (!person || String(person.user_id) !== String(currentUser.id)) return false;
@@ -857,7 +875,7 @@ const renderMatchCard = (match, isSingleElimStage) => {
     const player2Score = normalizeScoreDisplay(match.player2?.score, isBye && isCompleted);
 
     return `
-        <div class="match-card status-${match.status} ${canScore ? 'clickable-card' : ''} ${isJudge && match.status !== 'completed' ? 'judge-assigned-highlight' : ''} ${isBye ? 'match-card-bye' : ''}"
+        <div class="match-card status-${match.status} ${canScore ? 'clickable-card' : ''} ${isJudge && match.status !== 'completed' ? 'judge-assigned-highlight' : ''} ${isPlayer && match.status !== 'completed' ? 'player-assigned-highlight' : ''} ${isBye ? 'match-card-bye' : ''}"
              onclick="${canScore ? `promptMatchScore(${match.id}, '${escapeHtml(match.player1.name)}', '${escapeHtml(match.player2.name)}', ${match.player1.score}, ${match.player2.score})` : ''}">
             ${canManualOverride ? `
                 <button type="button" class="match-ellipsis-btn" onclick="event.stopPropagation(); toggleManualOverride(${match.id})" title="${isCompleted ? 'Edit Match Result' : 'Manual Override'}">
@@ -866,6 +884,7 @@ const renderMatchCard = (match, isSingleElimStage) => {
             ` : ''}
             <div class="match-header" style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #64748b; margin-bottom: 0.5rem;">
                 <span>${headerLabel}</span>
+                <span><small class="text-muted fw-normal">Match ${match.match_number}</small></span>
             </div>
             <div class="player-vs">
                 <div class="player-row ${isP1Winner ? 'winner' : (isP2Winner ? 'loser' : '')}">
@@ -1133,7 +1152,14 @@ const promptMatchScore = async (matchId, p1Name, p2Name, currentP1 = 0, currentP
     if (!existingData) existingData = {};
     existingData.config = { minPoints };
 
-    const scores = await showScoringModal(p1Name, p2Name, existingData);
+    let displayName1 = p1Name;
+    let displayName2 = p2Name;
+    if (match) {
+        if (match.player1?.seed) displayName1 = `(#${match.player1.seed}) ${p1Name}`;
+        if (match.player2?.seed) displayName2 = `(#${match.player2.seed}) ${p2Name}`;
+    }
+
+    const scores = await showScoringModal(displayName1, displayName2, existingData);
     if (!scores) return; // Cancelled
 
     recordMatchResult(matchId, scores.p1, scores.p2, scores.finishes);
@@ -1458,5 +1484,117 @@ const handleLogout = async (e) => {
     } catch (error) {
         console.error('Logout failed:', error);
         window.location.href = 'index.html';
+    }
+};
+// Check for Judge Rotations and New Assignments
+const checkForJudgeRotations = (rounds, bindings) => {
+    if (!rounds || !bindings) return;
+
+    let hasRotation = false;
+    const currentAssignments = [];
+
+    rounds.forEach(round => {
+        (round.matches || []).forEach(match => {
+            if (match.status === 'assigned' && match.judge && match.stadium) {
+                const matchKey = `m${match.id}_j${match.judge.id}_s${match.stadium.id}`;
+                currentAssignments.push(matchKey);
+
+                // If this is a NEW assignment we haven't seen in this session
+                if (!lastAssignmentKeys.has(matchKey)) {
+                    const homeBinding = bindings.find(b => b.stadium_id == match.stadium.id);
+                    const homeJudgeId = homeBinding ? homeBinding.judge_id : null;
+
+                    // If it's a rotation (Sub replacing Home)
+                    if (homeJudgeId && match.judge.id != homeJudgeId) {
+                        const homeJudge = currentTournamentPeople?.find(p => p.user_id == homeJudgeId);
+                        const homeName = homeJudge ? (homeJudge.display_name || homeJudge.blader_name) : 'Home Judge';
+
+                        // Notify TOs AND involved judges (Incoming Judge, Outgoing Judge)
+                        const isInvolved = currentUser && (
+                            String(currentUser.id) === String(match.judge.id) || // Incoming Judge
+                            String(currentUser.id) === String(homeJudgeId)       // Outgoing Judge
+                        );
+
+                        if (userCanManageStage2() || isInvolved) {
+                            showToast(`🔁 <strong>Judge Rotation on ${escapeHtml(match.stadium.name)}</strong><br>${escapeHtml(match.judge.name)} is subbing for ${escapeHtml(homeName)}!`, { variant: 'info', delay: 10000 });
+                            hasRotation = true;
+                        }
+                    }
+                    // Optional: Notify of ANY new assignment if preferred, but user specifically asked for replacements.
+
+                    lastAssignmentKeys.add(matchKey);
+                }
+            }
+        });
+    });
+
+    if (hasRotation) {
+        playNotificationSound();
+    }
+};
+
+const playNotificationSound = () => {
+    try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+        oscillator.frequency.exponentialRampToValueAtTime(440, audioCtx.currentTime + 0.5); // A4
+
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.5);
+    } catch (e) {
+        console.warn('Audio notification failed:', e);
+    }
+};
+
+// Scroll to player's assigned match
+const scrollToPlayerMatch = () => {
+    if (!currentUser) return;
+
+    // Find the player's assigned match card
+    const assignedMatch = document.querySelector('.match-card.player-assigned-highlight');
+    if (!assignedMatch) return;
+
+    // Use smooth scroll to bring the match into view
+    assignedMatch.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'center'
+    });
+};
+
+const updatePlayerMatchButton = () => {
+    let btn = document.getElementById('floatingPlayerMatchBtn');
+
+    // Check if player has an active match visible
+    const assignedMatch = document.querySelector('.match-card.player-assigned-highlight');
+
+    if (assignedMatch) {
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'floatingPlayerMatchBtn';
+            btn.className = 'floating-match-btn';
+            btn.innerHTML = '<i class="bi bi-controller"></i> Go to My Match';
+            btn.onclick = scrollToPlayerMatch;
+            document.body.appendChild(btn);
+        }
+
+        // Show button with animation
+        requestAnimationFrame(() => {
+            btn.classList.add('visible');
+        });
+    } else {
+        if (btn) {
+            btn.classList.remove('visible');
+        }
     }
 };

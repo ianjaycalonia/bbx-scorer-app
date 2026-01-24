@@ -66,7 +66,8 @@ class AuthService {
                 this.showAlert(response.message || 'Login failed', 'danger');
             }
         } catch (error) {
-            this.showAlert('Login failed. Please try again.', 'danger');
+            console.error('Login error details:', error);
+            this.showAlert('Login failed. Please try again. ' + (error.message || ''), 'danger');
         } finally {
             this.hideLoading();
         }

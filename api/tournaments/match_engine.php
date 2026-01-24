@@ -5,7 +5,8 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-class MatchEngine {
+class MatchEngine
+{
     private $conn;
     private $tournamentId;
     private $stageMaxRounds = [];
@@ -18,7 +19,8 @@ class MatchEngine {
     private $homeStadiumByJudge = [];
     private $roundByeCache = [];
 
-    public function __construct($database, $tournamentId) {
+    public function __construct($database, $tournamentId)
+    {
         if ($database instanceof mysqli) {
             $this->conn = $database;
         } else {
@@ -31,15 +33,23 @@ class MatchEngine {
      * Main Assignment Loop (Rolling)
      * Rule 7: Stop if No stadiums, No judges, or No playable matches.
      */
-    public function runAssignment() {
+    public function runAssignment()
+    {
         $this->conn->begin_transaction();
         try {
             $assignments = [];
 
-            $stadiums = $this->getAllAvailableStadiums();
-            $this->initializeJudgeBindings($stadiums);
+            $allStadiums = $this->getAllStadiums();
+            $this->initializeJudgeBindings($allStadiums);
 
-            if (empty($stadiums)) {
+            // AUTO-HEAL: Clear assignments for Bye matches (they should not have stadiums)
+            $sql = "DELETE ma FROM match_assignments ma 
+                    JOIN tournament_matches tm ON ma.match_id = tm.id 
+                    WHERE tm.player2_id IS NULL";
+            $this->conn->query($sql);
+
+            $availableStadiums = $this->getAllAvailableStadiums();
+            if (empty($availableStadiums)) {
                 $this->conn->commit();
                 return ['success' => true, 'assignments' => []];
             }
@@ -51,13 +61,10 @@ class MatchEngine {
             }
 
             $matches = array_values($matches);
-            usort($stadiums, function($a, $b) {
-                return ((int)$a['id']) <=> ((int)$b['id']);
-            });
 
             $judgesAssigned = [];
 
-            foreach ($stadiums as $stadium) {
+            foreach ($availableStadiums as $stadium) {
                 $result = $this->assignNextMatchForStadium($stadium, $matches, $judgesAssigned);
                 if (!$result) {
                     continue;
@@ -65,7 +72,7 @@ class MatchEngine {
 
                 $matchId = $result['match']['id'];
                 $judgeId = $result['judge_id'];
-                $stadiumId = (int)$stadium['id'];
+                $stadiumId = (int) $stadium['id'];
 
                 $this->assignMatch($matchId, $judgeId, $stadiumId);
 
@@ -89,14 +96,18 @@ class MatchEngine {
             return ['success' => true, 'assignments' => $assignments];
         } catch (Exception $e) {
             if ($this->conn) {
-                try { $this->conn->rollback(); } catch (Exception $re) {}
+                try {
+                    $this->conn->rollback();
+                } catch (Exception $re) {
+                }
             }
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
 
-    private function assignNextMatchForStadium(array $stadium, array $matches, array $judgesAssigned) {
-        $stadiumId = (int)$stadium['id'];
+    private function assignNextMatchForStadium(array $stadium, array $matches, array $judgesAssigned)
+    {
+        $stadiumId = (int) $stadium['id'];
         $homeJudgeId = $this->judgeBindings[$stadiumId] ?? null;
 
         foreach ($matches as $index => $match) {
@@ -109,22 +120,18 @@ class MatchEngine {
                 continue;
             }
 
-            $matchDetails['stage'] = isset($match['stage']) ? (int)$match['stage'] : null;
-            $matchDetails['round_number'] = isset($match['round_number']) ? (int)$match['round_number'] : null;
-            $matchDetails['match_number'] = isset($match['match_number']) ? (int)$match['match_number'] : null;
+            $matchDetails['stage'] = isset($match['stage']) ? (int) $match['stage'] : null;
+            $matchDetails['round_number'] = isset($match['round_number']) ? (int) $match['round_number'] : null;
+            $matchDetails['match_number'] = isset($match['match_number']) ? (int) $match['match_number'] : null;
 
             $designatedJudgeId = $this->getDesignatedJudgeId($matchDetails);
 
             if ($designatedJudgeId) {
                 $designatedHome = $this->homeStadiumByJudge[$designatedJudgeId] ?? null;
                 if ($designatedHome !== null && $designatedHome !== $stadiumId) {
-                    // This match should be handled on the designated judge's home stadium.
                     continue;
                 }
-                if (!empty($judgesAssigned[$designatedJudgeId])) {
-                    continue;
-                }
-                if ($this->isJudgeEligible($designatedJudgeId, $matchDetails)) {
+                if (empty($judgesAssigned[$designatedJudgeId]) && $this->isJudgeEligible($designatedJudgeId, $matchDetails)) {
                     return [
                         'match' => $match,
                         'match_index' => $index,
@@ -134,22 +141,39 @@ class MatchEngine {
                 continue;
             }
 
-            if ($homeJudgeId && empty($judgesAssigned[$homeJudgeId]) && $this->isJudgeEligible($homeJudgeId, $matchDetails)) {
-                return [
-                    'match' => $match,
-                    'match_index' => $index,
-                    'judge_id' => $homeJudgeId
-                ];
+            // --- Sticky Round Logic ---
+            $stickyJudgeId = $this->getStickyJudgeForStadium($matchDetails['round_id'], $stadiumId);
+            if ($stickyJudgeId) {
+                if ($this->isJudgeEligible($stickyJudgeId, $matchDetails)) {
+                    if (empty($judgesAssigned[$stickyJudgeId])) {
+                        return [
+                            'match' => $match,
+                            'match_index' => $index,
+                            'judge_id' => $stickyJudgeId
+                        ];
+                    } else {
+                        // Sticky judge is busy right now, MUST wait for them
+                        continue;
+                    }
+                }
             }
 
+            $rotationCandidates = [];
+            if ($homeJudgeId && empty($judgesAssigned[$homeJudgeId])) {
+                $rotationCandidates[] = $homeJudgeId;
+            }
             $availableFloats = $this->getAvailableFloatingJudges($judgesAssigned);
-            if (!empty($availableFloats)) {
-                $floatCandidate = $this->getBestJudgeForMatch($match['id'], [], $stadiumId, $availableFloats);
-                if ($floatCandidate && empty($judgesAssigned[$floatCandidate['id']])) {
+            foreach ($availableFloats as $fid) {
+                $rotationCandidates[] = $fid;
+            }
+
+            if (!empty($rotationCandidates)) {
+                $bestForStadium = $this->getBestJudgeForMatch($match['id'], [], $stadiumId, $rotationCandidates);
+                if ($bestForStadium && empty($judgesAssigned[$bestForStadium['id']])) {
                     return [
                         'match' => $match,
                         'match_index' => $index,
-                        'judge_id' => $floatCandidate['id']
+                        'judge_id' => $bestForStadium['id']
                     ];
                 }
             }
@@ -167,7 +191,22 @@ class MatchEngine {
         return null;
     }
 
-    private function getAvailableFloatingJudges(array $judgesAssigned): array {
+    private function getStickyJudgeForStadium($roundId, $stadiumId)
+    {
+        $sql = "SELECT tm.judge_id 
+                FROM tournament_matches tm
+                JOIN match_assignments ma ON tm.id = ma.match_id
+                WHERE tm.round_id = ? AND ma.stadium_id = ?
+                LIMIT 1";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("ii", $roundId, $stadiumId);
+        $stmt->execute();
+        $res = $stmt->get_result()->fetch_assoc();
+        return $res['judge_id'] ?? null;
+    }
+
+    private function getAvailableFloatingJudges(array $judgesAssigned): array
+    {
         if (empty($this->floatingJudges)) {
             return [];
         }
@@ -182,16 +221,26 @@ class MatchEngine {
         return $available;
     }
 
+    private function getAllStadiums()
+    {
+        $sql = "SELECT id, name FROM tournament_stadiums WHERE tournament_id = ? ORDER BY id ASC";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $this->tournamentId);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    }
+
     /**
      * Rule 2.1 & 2.3: Get ALL available stadiums ordered by ID
      */
-    private function getAllAvailableStadiums() {
+    private function getAllAvailableStadiums()
+    {
         $sql = "SELECT s.id, s.name 
                 FROM tournament_stadiums s
                 WHERE s.tournament_id = ? 
                 AND NOT EXISTS (SELECT 1 FROM match_assignments ma WHERE ma.stadium_id = s.id)
                 ORDER BY s.id ASC";
-        
+
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $this->tournamentId);
         $stmt->execute();
@@ -201,7 +250,8 @@ class MatchEngine {
     /**
      * Rule 3.1 & 3.2: Get all playable matches in FIFO order
      */
-    private function getPlayableMatches($excludeIds = []) {
+    private function getPlayableMatches($excludeIds = [])
+    {
         $excludeClause = "";
         if (!empty($excludeIds)) {
             $placeholders = implode(',', array_fill(0, count($excludeIds), '?'));
@@ -214,6 +264,7 @@ class MatchEngine {
                 JOIN tournaments t ON tm.tournament_id = t.id
                 WHERE tm.tournament_id = ? 
                 AND tm.status IN ('scheduled', 'blocked')
+                AND tm.player2_id IS NOT NULL -- Exclude Byes
                 AND (tr.status = 'active' OR (t.current_stage = 2 AND tr.stage = 2 AND tr.round_number = (
                     SELECT MIN(tr2.round_number) 
                     FROM tournament_matches tm2 
@@ -222,7 +273,6 @@ class MatchEngine {
                     AND tm2.status IN ('scheduled', 'blocked')
                     AND tr2.stage = 2
                 )))
-                AND tm.player1_id IS NOT NULL AND tm.player2_id IS NOT NULL
                 AND NOT EXISTS (SELECT 1 FROM match_assignments ma WHERE ma.match_id = tm.id)
                 -- 1.5 Players cannot be in two matches at once
                 AND NOT EXISTS (
@@ -241,13 +291,13 @@ class MatchEngine {
                 )
                 $excludeClause
                 ORDER BY tr.round_number ASC, tm.created_at ASC, tm.match_number ASC";
-        
+
         $stmt = $this->conn->prepare($sql);
-        
+
         $params = array_merge([$this->tournamentId, $this->tournamentId], $excludeIds);
         $types = "ii" . str_repeat("i", count($excludeIds));
         $stmt->bind_param($types, ...$params);
-        
+
         $stmt->execute();
         return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     }
@@ -255,9 +305,11 @@ class MatchEngine {
     /**
      * Rule 4 & 5: Judge selection with fatigue score
      */
-    private function getBestJudgeForMatch($matchId, array $preferredJudgeIds = [], $stadiumId = null, ?array $restrictToJudges = null) {
+    private function getBestJudgeForMatch($matchId, array $preferredJudgeIds = [], $stadiumId = null, ?array $restrictToJudges = null)
+    {
         $match = $this->getMatchDetails($matchId);
-        if (!$match) return null;
+        if (!$match)
+            return null;
 
         $judges = $this->getOrderedJudges();
 
@@ -284,8 +336,9 @@ class MatchEngine {
                         if ($home === $stadiumId) {
                             $score += 40;
                         } else {
-                            // Heavy penalty: bound to a different stadium.
-                            $score -= 200;
+                            // Prohibitive penalty: bound to a different stadium.
+                            // This ensures judges don't "hop" stadiums if there's a match elsewhere.
+                            $score -= 500;
                         }
                     }
                 }
@@ -304,7 +357,8 @@ class MatchEngine {
             }
         }
 
-        if (empty($candidates)) return null;
+        if (empty($candidates))
+            return null;
 
         if ($primaryPreferred) {
             foreach ($candidates as $candidate) {
@@ -318,7 +372,7 @@ class MatchEngine {
          * Rule 5.3: Choose highest score
          * Tie-breaker: Lowest judge_id
          */
-        usort($candidates, function($a, $b) {
+        usort($candidates, function ($a, $b) {
             if ($b['score'] != $a['score']) {
                 return $b['score'] <=> $a['score'];
             }
@@ -334,19 +388,27 @@ class MatchEngine {
     /**
      * Rule 4: Judge Eligibility Filter - Optimized to prioritize non-playing judges
      */
-    private function isJudgeEligible($judgeId, $match) {
+    private function isJudgeEligible($judgeId, $match)
+    {
+        // 1.0 Cannot judge while playing in another active match
+        if ($this->isJudgeCurrentlyPlaying($judgeId)) {
+            return false;
+        }
+
         // 1.1 Match-active assignment: One active assignment per judge
         $sql = "SELECT status FROM tournament_matches tm
                 JOIN match_assignments ma ON tm.id = ma.match_id
                 WHERE ma.judge_id = ? AND tm.status IN ('assigned', 'in_progress')";
-        
+
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("s", $judgeId);
         $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) return false;
+        if ($stmt->get_result()->num_rows > 0)
+            return false;
 
         // 1.3 No self-judging
-        if ($match['player1_id'] === $judgeId || $match['player2_id'] === $judgeId) return false;
+        if ($match['player1_id'] === $judgeId || $match['player2_id'] === $judgeId)
+            return false;
 
         // Rule 4: Has not already judged this exact match
         $sql = "SELECT 1 FROM tournament_matches 
@@ -354,7 +416,8 @@ class MatchEngine {
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("sss", $judgeId, $match['player1_id'], $match['player2_id']);
         $stmt->execute();
-        if ($stmt->get_result()->num_rows > 0) return false;
+        if ($stmt->get_result()->num_rows > 0)
+            return false;
 
         return true;
     }
@@ -362,7 +425,8 @@ class MatchEngine {
     /**
      * Optimized judge scoring that prioritizes non-playing judges
      */
-    private function calculateJudgeScore($judgeId, $roundId, $match = null) {
+    private function calculateJudgeScore($judgeId, $roundId, $match = null)
+    {
         // Base score starts at 100
         $score = 100;
 
@@ -373,12 +437,7 @@ class MatchEngine {
             $score -= 30;
         }
 
-        // Check if judge is currently playing in another match
-        $isCurrentlyPlaying = $this->isJudgeCurrentlyPlaying($judgeId);
-        if ($isCurrentlyPlaying) {
-            // Heavy penalty for currently playing
-            $score -= 50;
-        }
+
 
         $onBye = $roundId ? $this->judgeHasBye($judgeId, $roundId) : false;
         if ($onBye) {
@@ -403,7 +462,7 @@ class MatchEngine {
         $stmt->execute();
         $Mr = max(1, $stmt->get_result()->fetch_row()[0]);
 
-        $fatigueWeight = 20; // Reduced fatigue weight
+        $fatigueWeight = 50; // Increased fatigue weight for better rotation subbing
         $fatiguePenalty = ($Mj / $Mr) * $fatigueWeight;
         $score -= $fatiguePenalty;
 
@@ -413,7 +472,8 @@ class MatchEngine {
     /**
      * Check if judge is also a player in this tournament
      */
-    private function isJudgeAlsoPlayer($judgeId) {
+    private function isJudgeAlsoPlayer($judgeId)
+    {
         $sql = "SELECT 1 FROM tournament_roles 
                 WHERE tournament_id = ? AND user_id = ? AND (FIND_IN_SET('player', role) > 0)";
         $stmt = $this->conn->prepare($sql);
@@ -425,7 +485,8 @@ class MatchEngine {
     /**
      * Check if judge is currently playing in another active match
      */
-    private function isJudgeCurrentlyPlaying($judgeId) {
+    private function isJudgeCurrentlyPlaying($judgeId)
+    {
         $sql = "SELECT 1 FROM tournament_matches
                 WHERE (player1_id = ? OR player2_id = ?) AND status IN ('assigned', 'in_progress')";
         $stmt = $this->conn->prepare($sql);
@@ -434,16 +495,17 @@ class MatchEngine {
         return $stmt->get_result()->num_rows > 0;
     }
 
-    private function isMatchReadyForAssignment($match) {
+    private function isMatchReadyForAssignment($match)
+    {
         if (!isset($match['stage']) || !isset($match['round_number'])) {
             return true;
         }
 
-        if ((int)$match['stage'] !== 2) {
+        if ((int) $match['stage'] !== 2) {
             return true;
         }
 
-        $roundNumber = (int)$match['round_number'];
+        $roundNumber = (int) $match['round_number'];
         $maxRound = $this->getMaxRoundNumber(2);
 
         if ($maxRound < 3 || $roundNumber !== ($maxRound - 1)) {
@@ -454,16 +516,17 @@ class MatchEngine {
         return $this->areRoundMatchesComplete(2, $roundNumber - 1);
     }
 
-    private function getDesignatedJudgeId($match) {
+    private function getDesignatedJudgeId($match)
+    {
         if (!isset($match['stage'], $match['round_number'], $match['match_number'])) {
             return null;
         }
 
-        if ((int)$match['stage'] !== 2) {
+        if ((int) $match['stage'] !== 2) {
             return null;
         }
 
-        if ((int)$match['match_number'] >= 90) {
+        if ((int) $match['match_number'] >= 90) {
             // Consolation / placement matches can use normal assignment
             return null;
         }
@@ -473,7 +536,7 @@ class MatchEngine {
             return null;
         }
 
-        $roundNumber = (int)$match['round_number'];
+        $roundNumber = (int) $match['round_number'];
         $sourceRound = null;
 
         if ($roundNumber === $maxRound) {
@@ -509,7 +572,8 @@ class MatchEngine {
         return $result['judge_id'] ?? null;
     }
 
-    private function getMaxRoundNumber($stage) {
+    private function getMaxRoundNumber($stage)
+    {
         if (!isset($this->stageMaxRounds[$stage])) {
             $sql = "SELECT MAX(round_number) AS max_round
                     FROM tournament_rounds
@@ -518,13 +582,14 @@ class MatchEngine {
             $stmt->bind_param("ii", $this->tournamentId, $stage);
             $stmt->execute();
             $row = $stmt->get_result()->fetch_assoc();
-            $this->stageMaxRounds[$stage] = (int)($row['max_round'] ?? 0);
+            $this->stageMaxRounds[$stage] = (int) ($row['max_round'] ?? 0);
         }
 
         return $this->stageMaxRounds[$stage];
     }
 
-    private function areRoundMatchesComplete($stage, $roundNumber) {
+    private function areRoundMatchesComplete($stage, $roundNumber)
+    {
         if ($roundNumber < 1) {
             return true;
         }
@@ -543,10 +608,11 @@ class MatchEngine {
         $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
 
-        return ((int)$row['pending']) === 0;
+        return ((int) $row['pending']) === 0;
     }
 
-    private function assignMatch($matchId, $judgeId, $stadiumId) {
+    private function assignMatch($matchId, $judgeId, $stadiumId)
+    {
         $sql = "INSERT INTO match_assignments (match_id, judge_id, stadium_id) VALUES (?, ?, ?)";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("isi", $matchId, $judgeId, $stadiumId);
@@ -558,7 +624,8 @@ class MatchEngine {
         $stmt->execute();
     }
 
-    private function prioritizeConsolationsFirst(array $matches) {
+    private function prioritizeConsolationsFirst(array $matches)
+    {
         if (empty($matches)) {
             return $matches;
         }
@@ -573,9 +640,9 @@ class MatchEngine {
         $finals = [];
 
         foreach ($matches as $match) {
-            $stage = isset($match['stage']) ? (int)$match['stage'] : null;
-            $roundNumber = isset($match['round_number']) ? (int)$match['round_number'] : null;
-            $matchNumber = isset($match['match_number']) ? (int)$match['match_number'] : null;
+            $stage = isset($match['stage']) ? (int) $match['stage'] : null;
+            $roundNumber = isset($match['round_number']) ? (int) $match['round_number'] : null;
+            $matchNumber = isset($match['match_number']) ? (int) $match['match_number'] : null;
 
             if ($stage === 2 && $roundNumber === $finalRound) {
                 // In final round, prioritize by importance (finals first, then consolation in order)
@@ -592,12 +659,12 @@ class MatchEngine {
         }
 
         // Sort finals by match number (ascending)
-        usort($finals, function($a, $b) {
+        usort($finals, function ($a, $b) {
             return ($a['match_number'] ?? 0) <=> ($b['match_number'] ?? 0);
         });
 
         // Sort consolation by descending importance (lower match number = higher importance)
-        usort($consolations, function($a, $b) {
+        usort($consolations, function ($a, $b) {
             return ($b['match_number'] ?? 0) <=> ($a['match_number'] ?? 0);
         });
 
@@ -605,14 +672,16 @@ class MatchEngine {
         return array_merge($finals, $consolations, $others);
     }
 
-    private function blockMatch($matchId, $reason) {
+    private function blockMatch($matchId, $reason)
+    {
         $sql = "UPDATE tournament_matches SET status = 'blocked', blocked_reason = ? WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("si", $reason, $matchId);
         $stmt->execute();
     }
 
-    private function getMatchDetails($matchId) {
+    private function getMatchDetails($matchId)
+    {
         $sql = "SELECT * FROM tournament_matches WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $matchId);
@@ -620,7 +689,8 @@ class MatchEngine {
         return $stmt->get_result()->fetch_assoc();
     }
 
-    private function getTournamentSeed() {
+    private function getTournamentSeed()
+    {
         if ($this->tournamentSeed !== null) {
             return $this->tournamentSeed;
         }
@@ -636,7 +706,8 @@ class MatchEngine {
         return $this->tournamentSeed;
     }
 
-    private function getOrderedJudges(): array {
+    private function getOrderedJudges(): array
+    {
         if ($this->judgeOrderCache !== null) {
             return $this->judgeOrderCache;
         }
@@ -658,7 +729,7 @@ class MatchEngine {
             $orderMap[$judge['id']] = $orderKey;
         }
 
-        usort($judges, function($a, $b) use ($orderMap) {
+        usort($judges, function ($a, $b) use ($orderMap) {
             if ($orderMap[$a['id']] === $orderMap[$b['id']]) {
                 return strcmp($a['id'], $b['id']);
             }
@@ -673,7 +744,8 @@ class MatchEngine {
         return $this->judgeOrderCache;
     }
 
-    private function initializeJudgeBindings(array $stadiums): void {
+    private function initializeJudgeBindings(array $stadiums): void
+    {
         if ($this->judgeBindingsInitialized) {
             return;
         }
@@ -689,7 +761,7 @@ class MatchEngine {
         }
 
         $sortedStadiums = $stadiums;
-        usort($sortedStadiums, function($a, $b) {
+        usort($sortedStadiums, function ($a, $b) {
             return $a['id'] <=> $b['id'];
         });
 
@@ -699,7 +771,7 @@ class MatchEngine {
         $bindingCount = min($judgeCount, $stadiumCount);
 
         for ($i = 0; $i < $bindingCount; $i++) {
-            $stadiumId = (int)$sortedStadiums[$i]['id'];
+            $stadiumId = (int) $sortedStadiums[$i]['id'];
             $judgeId = $judges[$i]['id'];
             $this->judgeBindings[$stadiumId] = $judgeId;
             $this->homeStadiumByJudge[$judgeId] = $stadiumId;
@@ -721,7 +793,8 @@ class MatchEngine {
         }
     }
 
-    private function judgeHasBye($judgeId, $roundId): bool {
+    private function judgeHasBye($judgeId, $roundId): bool
+    {
         if (!$roundId) {
             return false;
         }
@@ -749,7 +822,11 @@ class MatchEngine {
         return in_array($judgeId, $this->roundByeCache[$roundId], true);
     }
 
-    private function getEscapeJudgeForMatch($matchId, int $stadiumId, ?string $homeJudgeId, array $matchDetails, array $judgesAssigned) {
+    private function getEscapeJudgeForMatch($matchId, int $stadiumId, ?string $homeJudgeId, array $matchDetails, array $judgesAssigned)
+    {
+        // Only ever allow the home judge or a floating judge for this stadium.
+        // We no longer "borrow" judges from other stadiums (Escape) to prevent stadium hopping.
+
         $availableFloats = $this->getAvailableFloatingJudges($judgesAssigned);
         if (!empty($availableFloats)) {
             $candidate = $this->getBestJudgeForMatch($matchId, [], $stadiumId, $availableFloats);
@@ -762,24 +839,19 @@ class MatchEngine {
             return ['id' => $homeJudgeId];
         }
 
-        $boundJudges = array_values(array_unique(array_values($this->judgeBindings)));
-        $candidates = [];
-        foreach ($boundJudges as $judgeId) {
-            if ($homeJudgeId !== null && $judgeId === $homeJudgeId) {
-                continue;
-            }
-            if (!empty($judgesAssigned[$judgeId])) {
-                continue;
-            }
-            $candidates[] = $judgeId;
-        }
+        return null;
+    }
 
-        if (empty($candidates)) {
-            return null;
-        }
+    public function getPublicBindings(): array
+    {
+        $allStadiums = $this->getAllStadiums();
+        $this->initializeJudgeBindings($allStadiums);
 
-        // Emergency escape: borrow a bound judge from another stadium to keep matches moving.
-        return $this->getBestJudgeForMatch($matchId, [], $stadiumId, $candidates);
+        $out = [];
+        foreach ($this->judgeBindings as $sid => $jid) {
+            $out[] = ['stadium_id' => $sid, 'judge_id' => $jid];
+        }
+        return $out;
     }
 }
 

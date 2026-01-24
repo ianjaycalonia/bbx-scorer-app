@@ -75,6 +75,12 @@ class ScoringService
             }
         }
 
+        if (!$isJudge && ($isCreator || $isOrganizer)) {
+            if (!empty($matchInfo['judge_id'])) {
+                throw new Exception("Cannot override an assigned judge. Please unassign the judge first.");
+            }
+        }
+
         if (!$isJudge && !$isCreator && !$isOrganizer) {
             $judgeId = $matchInfo['judge_id'] ?? 'NULL';
             $creatorId = $matchInfo['created_by'] ?? 'NULL';
@@ -83,10 +89,14 @@ class ScoringService
 
         // Auto-determine winner
         $winnerId = null;
-        if ($p1score > $p2score)
+        $loserId = null;
+        if ($p1score > $p2score) {
             $winnerId = $matchInfo['player1_id'];
-        else if ($p2score > $p1score)
+            $loserId = $matchInfo['player2_id'];
+        } else if ($p2score > $p1score) {
             $winnerId = $matchInfo['player2_id'];
+            $loserId = $matchInfo['player1_id'];
+        }
 
         $this->conn->begin_transaction();
         try {
@@ -164,9 +174,10 @@ class ScoringService
             return; // Already processed
         }
 
-        // Check if all matches in this round are completed
+        // Check if all "real" matches (non-bye) in this round are completed
         $sql = "SELECT COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed 
-                FROM tournament_matches WHERE round_id = ?";
+                FROM tournament_matches 
+                WHERE round_id = ? AND player2_id IS NOT NULL";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $roundId);
         $stmt->execute();
@@ -175,17 +186,18 @@ class ScoringService
         $totalMatches = (int) $result['total'];
         $completedMatches = (int) $result['completed'];
 
-        // Only award bye points if all matches are completed
-        if ($totalMatches > 0 && $totalMatches == $completedMatches) {
-            $this->awardByePoints($roundNumber);
+        // Only award bye points if all regular matches are completed
+        // If there are no regular matches (e.g. only 1 player?), assume complete
+        if ($totalMatches == $completedMatches) {
+            $this->awardByePoints($roundNumber, $roundId);
             $_SESSION['bye_tracking'][$this->tournamentId]['rounds_completed'][$roundNumber] = true;
         }
     }
 
     /**
-     * Award bye points to players who received byes in this round
+     * Award bye points to players who received byes in this round and finalize their matches
      */
-    private function awardByePoints($roundNumber)
+    private function awardByePoints($roundNumber, $roundId)
     {
         if (!isset($_SESSION['bye_tracking'][$this->tournamentId]['byes_awarded'])) {
             return;
@@ -194,17 +206,32 @@ class ScoringService
         $byePoints = 0;
         foreach ($_SESSION['bye_tracking'][$this->tournamentId]['byes_awarded'] as $playerId => $byeRound) {
             if ($byeRound == $roundNumber) {
+                // Find the bye match for this player in this round
+                $sqlMatch = "SELECT id FROM tournament_matches WHERE round_id = ? AND player1_id = ? AND player2_id IS NULL";
+                $stmtMatch = $this->conn->prepare($sqlMatch);
+                $stmtMatch->bind_param("is", $roundId, $playerId);
+                $stmtMatch->execute();
+                $matchRow = $stmtMatch->get_result()->fetch_assoc();
+
+                if (!$matchRow)
+                    continue;
+                $byeMatchId = $matchRow['id'];
+
+                // Finalize the bye match: Set status to 'completed', set winner, set scores (4-0)
+                $sqlComplete = "UPDATE tournament_matches SET status = 'completed', winner_id = ?, player1_score = 4, player2_score = 0 WHERE id = ?";
+                $stmtComplete = $this->conn->prepare($sqlComplete);
+                $stmtComplete->bind_param("si", $playerId, $byeMatchId);
+                $stmtComplete->execute();
+
                 // Award +2 BP as two Fault finishes (1 point each)
-                // This treats bye BP as Fault for tie-breaker neutrality
                 for ($i = 0; $i < 2; $i++) {
-                    $sql = "INSERT INTO match_finishes (match_id, player_id, finish_type, points) 
-                            VALUES (NULL, ?, 'Fault', 1)";
+                    $sql = "INSERT INTO match_finishes (match_id, player_id, finish_type, points) VALUES (?, ?, 'Fault', 1)";
                     $stmt = $this->conn->prepare($sql);
-                    $stmt->bind_param("s", $playerId);
+                    $stmt->bind_param("is", $byeMatchId, $playerId);
                     $stmt->execute();
                 }
 
-                $byePoints += 2; // Track total BP awarded
+                $byePoints += 2;
             }
         }
     }

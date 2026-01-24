@@ -236,6 +236,9 @@
                                 <div class="col-5 text-center">
                                     <div id="score-p1-name" class="small fw-bold text-muted text-uppercase mb-1 text-truncate px-2">Player 1</div>
                                     <div id="score-p1-value" class="display-1 fw-black text-primary lh-1">0</div>
+                                    <div id="p1-warnings" class="small text-warning fw-bold mb-1" style="min-height: 20px;">
+                                        <!-- Warning indicator will appear here -->
+                                    </div>
                                     <div id="p1-history" class="d-flex justify-content-center flex-wrap gap-1 mt-2" style="min-height: 24px;"></div>
                                 </div>
                                 <div class="col-2 text-center">
@@ -249,6 +252,9 @@
                                 <div class="col-5 text-center">
                                     <div id="score-p2-name" class="small fw-bold text-muted text-uppercase mb-1 text-truncate px-2">Player 2</div>
                                     <div id="score-p2-value" class="display-1 fw-black text-danger lh-1">0</div>
+                                    <div id="p2-warnings" class="small text-warning fw-bold mb-1" style="min-height: 20px;">
+                                        <!-- Warning indicator will appear here -->
+                                    </div>
                                     <div id="p2-history" class="d-flex justify-content-center flex-wrap gap-1 mt-2" style="min-height: 24px;"></div>
                                 </div>
                             </div>
@@ -277,7 +283,7 @@
                                     </button>
                                     <button class="btn btn-outline-white py-3 finish-btn" data-player="p1" data-points="1" data-type="Fault">
                                         <div class="fw-bold">Fault</div>
-                                        <div class="small opacity-75">+1</div>
+                                        <div class="small opacity-75">Warning</div>
                                     </button>
                                 </div>
                             </div>
@@ -302,7 +308,7 @@
                                     </button>
                                     <button class="btn btn-outline-white py-3 finish-btn" data-player="p2" data-points="1" data-type="Fault">
                                         <div class="fw-bold">Fault</div>
-                                        <div class="small opacity-75">+1</div>
+                                        <div class="small opacity-75">Warning</div>
                                     </button>
                                 </div>
                             </div>
@@ -359,6 +365,8 @@
             // State
             let p1Score = 0;
             let p2Score = 0;
+            let p1Warnings = 0;  // Track warnings for player 1
+            let p2Warnings = 0;  // Track warnings for player 2
             let history = []; // Stack of snapshots for undo
             let moves = [];   // Linear list of actual scoring events
 
@@ -375,11 +383,15 @@
                 p1Score = existingData.p1Score || 0;
                 p2Score = existingData.p2Score || 0;
                 moves = existingData.finishes || [];
+                p1Warnings = 0;  // Always reset warnings when editing
+                p2Warnings = 0;
                 logEl.textContent = 'Editing match result...';
             } else {
                 // New match - start fresh
                 p1Score = 0;
                 p2Score = 0;
+                p1Warnings = 0;
+                p2Warnings = 0;
                 moves = [];
                 logEl.textContent = 'Swipe or tap finishes below...';
             }
@@ -391,6 +403,22 @@
             const updateDisplay = () => {
                 p1ValEl.textContent = p1Score;
                 p2ValEl.textContent = p2Score;
+
+                // Update warning indicators
+                const p1WarningsEl = modalEl.querySelector('#p1-warnings');
+                const p2WarningsEl = modalEl.querySelector('#p2-warnings');
+
+                if (p1Warnings > 0) {
+                    p1WarningsEl.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> Warning ${p1Warnings}/2`;
+                } else {
+                    p1WarningsEl.innerHTML = '';
+                }
+
+                if (p2Warnings > 0) {
+                    p2WarningsEl.innerHTML = `<i class="bi bi-exclamation-triangle-fill"></i> Warning ${p2Warnings}/2`;
+                } else {
+                    p2WarningsEl.innerHTML = '';
+                }
 
                 undoBtn.disabled = history.length === 0;
 
@@ -459,15 +487,22 @@
                 p1Score = p2Score;
                 p2Score = tempScore;
 
+                // Swap warnings
+                const tempWarnings = p1Warnings;
+                p1Warnings = p2Warnings;
+                p2Warnings = tempWarnings;
+
                 // Swap moves (update player references)
                 moves = moves.map(move => ({
                     ...move,
                     player: move.player === 'p1' ? 'p2' : 'p1'
                 }));
 
-                // Update history logs to reflect swapped names
+                // Update history logs to reflect swapped names and warnings
                 history = history.map(state => ({
                     ...state,
+                    p1Warnings: state.p2Warnings || 0,
+                    p2Warnings: state.p1Warnings || 0,
                     log: state.log.replace(p1NameEl.textContent, 'TEMP_NAME').replace(p2NameEl.textContent, p1NameEl.textContent).replace('TEMP_NAME', p2NameEl.textContent)
                 }));
 
@@ -476,15 +511,54 @@
             };
 
             const addPoints = (player, points, type) => {
-                history.push({ p1: p1Score, p2: p2Score, log: logEl.textContent });
-                moves.push({ player, points, type });
-
-                if (player === 'p1') {
-                    p1Score += points;
-                    logEl.textContent = `${p1Name}: ${points} pt (${type})`;
+                // Special handling for Fault type
+                if (type === 'Fault') {
+                    if (player === 'p1') {
+                        p1Warnings++;
+                        if (p1Warnings >= 2) {
+                            // Award 1 fault point to OPPONENT and reset warnings
+                            history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings, log: logEl.textContent });
+                            moves.push({ player: 'p2', points: 1, type: 'Fault' }); // Opponent gets the point
+                            p2Score += 1; // OPPONENT (p2) gets the point
+                            p1Warnings = 0;
+                            p2Warnings = 0; // RESET ALL WARNINGS when a point is awarded
+                            logEl.textContent = `${p1Name} fault → ${p2Name}: +1 pt`;
+                        } else {
+                            // Just record warning, no points
+                            history.push({ p1: p1Score, p2: p2Score, p1Warnings: p1Warnings - 1, p2Warnings, log: logEl.textContent });
+                            logEl.textContent = `${p1Name}: Warning ${p1Warnings}/2`;
+                        }
+                    } else {
+                        p2Warnings++;
+                        if (p2Warnings >= 2) {
+                            history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings, log: logEl.textContent });
+                            moves.push({ player: 'p1', points: 1, type: 'Fault' }); // Opponent gets the point
+                            p1Score += 1; // OPPONENT (p1) gets the point
+                            p1Warnings = 0; // RESET ALL WARNINGS when a point is awarded
+                            p2Warnings = 0;
+                            logEl.textContent = `${p2Name} fault → ${p1Name}: +1 pt`;
+                        } else {
+                            history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings: p2Warnings - 1, log: logEl.textContent });
+                            logEl.textContent = `${p2Name}: Warning ${p2Warnings}/2`;
+                        }
+                    }
                 } else {
-                    p2Score += points;
-                    logEl.textContent = `${p2Name}: ${points} pt (${type})`;
+                    // Normal scoring for non-Fault types
+                    // RESET ALL WARNINGS when any valid finish is clicked
+                    history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings, log: logEl.textContent });
+                    moves.push({ player, points, type });
+
+                    // Reset warnings for both players
+                    p1Warnings = 0;
+                    p2Warnings = 0;
+
+                    if (player === 'p1') {
+                        p1Score += points;
+                        logEl.textContent = `${p1Name}: ${points} pt (${type})`;
+                    } else {
+                        p2Score += points;
+                        logEl.textContent = `${p2Name}: ${points} pt (${type})`;
+                    }
                 }
                 updateDisplay();
             };
@@ -494,8 +568,15 @@
                 const lastState = history.pop();
                 p1Score = lastState.p1;
                 p2Score = lastState.p2;
+                p1Warnings = lastState.p1Warnings || 0;
+                p2Warnings = lastState.p2Warnings || 0;
                 logEl.textContent = lastState.log;
-                moves.pop();
+
+                // Only pop from moves if the last action actually added a move (not just a warning)
+                if (moves.length > 0 && lastState.log && !lastState.log.includes('Warning')) {
+                    moves.pop();
+                }
+
                 updateDisplay();
             };
 

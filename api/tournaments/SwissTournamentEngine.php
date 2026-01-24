@@ -234,7 +234,7 @@ class SwissTournamentEngine
         if (count($meta) === 0)
             return [];
         if (count($meta) === 1) {
-            return [['p1' => $meta[0]['id'], 'p2' => null, 'is_bye' => true]];
+            return [['p1' => $meta[0]['id'], 'p1_seed' => $meta[0]['seed'], 'p2' => null, 'p2_seed' => null, 'is_bye' => true]];
         }
 
         if ($roundNumber === 1) {
@@ -254,7 +254,7 @@ class SwissTournamentEngine
         $pairings = $this->pairByScoreGroups($meta);
 
         if ($byeCandidate) {
-            $pairings[] = ['p1' => $byeCandidate['id'], 'p2' => null, 'is_bye' => true];
+            $pairings[] = ['p1' => $byeCandidate['id'], 'p1_seed' => $byeCandidate['seed'], 'p2' => null, 'p2_seed' => null, 'is_bye' => true];
         }
 
         return $this->sortPairingsByJudgeLoad($pairings);
@@ -305,15 +305,29 @@ class SwissTournamentEngine
         if (count($players) % 2 === 1) {
             $byeCandidate = $this->selectByeCandidate($players);
             if ($byeCandidate) {
-                $pairings[] = ['p1' => $byeCandidate['id'], 'p2' => null, 'is_bye' => true];
+                $pairings[] = ['p1' => $byeCandidate['id'], 'p1_seed' => $byeCandidate['seed'], 'p2' => null, 'p2_seed' => null, 'is_bye' => true];
                 $players = array_values(array_filter($players, function ($p) use ($byeCandidate) {
                     return $p['id'] !== $byeCandidate['id'];
                 }));
             }
         }
 
-        for ($i = 0; $i < count($players) - 1; $i += 2) {
-            $pairings[] = ['p1' => $players[$i]['id'], 'p2' => $players[$i + 1]['id'], 'is_bye' => false];
+        // Sliding pairing: 1 vs (N/2 + 1), 2 vs (N/2 + 2), etc.
+        // e.g. 8 players: 1 vs 5, 2 vs 6, 3 vs 7, 4 vs 8
+        $count = count($players);
+        $half = (int) floor($count / 2);
+
+        for ($i = 0; $i < $half; $i++) {
+            $p1 = $players[$i];
+            $p2 = $players[$i + $half];
+
+            $pairings[] = [
+                'p1' => $p1['id'],
+                'p1_seed' => $p1['seed'],
+                'p2' => $p2['id'],
+                'p2_seed' => $p2['seed'],
+                'is_bye' => false
+            ];
         }
 
         return $this->sortPairingsByJudgeLoad($pairings);
@@ -346,7 +360,7 @@ class SwissTournamentEngine
         }
 
         if ($floater !== null) {
-            $pairings[] = ['p1' => $floater['id'], 'p2' => null, 'is_bye' => true];
+            $pairings[] = ['p1' => $floater['id'], 'p1_seed' => $floater['seed'], 'p2' => null, 'p2_seed' => null, 'is_bye' => true];
         }
 
         return $pairings;
@@ -361,7 +375,13 @@ class SwissTournamentEngine
             $idx = $this->findOpponentIndex($p1, $available);
             $opponent = $available[$idx];
             array_splice($available, $idx, 1);
-            $pairings[] = ['p1' => $p1['id'], 'p2' => $opponent['id'], 'is_bye' => false];
+            $pairings[] = [
+                'p1' => $p1['id'],
+                'p1_seed' => $p1['seed'],
+                'p2' => $opponent['id'],
+                'p2_seed' => $opponent['seed'],
+                'is_bye' => false
+            ];
         }
         return $pairings;
     }
@@ -530,19 +550,28 @@ class SwissTournamentEngine
         foreach ($pairings as $pair) {
             if ($pair['is_bye']) {
                 $p1 = $pair['p1'];
+                $p1Seed = $pair['p1_seed'] ?? 0;
                 $this->recordPlayerBye($p1, $this->getRoundNumberById($roundId));
-                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, status, winner_id, player1_score, player2_score) VALUES (?, ?, ?, ?, NULL, 'completed', ?, 4, 0)";
+                // Defer bye completion: Create as scheduled, no winner/score yet
+                // Use match_number 0 for Byes so they don't consume a "Match X" label
+                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, player1_seed, player2_seed, status, winner_id, player1_score, player2_score) VALUES (?, ?, 0, ?, NULL, ?, 0, 'scheduled', NULL, 0, 0)";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("iiiss", $this->tournamentId, $roundId, $matchNumber, $p1, $p1);
+                $stmt->bind_param("iisi", $this->tournamentId, $roundId, $p1, $p1Seed);
                 $stmt->execute();
+                // recordRoundBye is not needed here if we rely on round completion logic, but keeping track for pairing is good.
+                // Actually, recordRoundBye updates tournament_rounds.bye_players which is used for pairing. We still need this.
                 $this->recordRoundBye($roundId, $p1);
             } else {
-                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, status) VALUES (?, ?, ?, ?, ?, 'scheduled')";
+                $p1 = $pair['p1'];
+                $p2 = $pair['p2'];
+                $p1Seed = $pair['p1_seed'] ?? 0;
+                $p2Seed = $pair['p2_seed'] ?? 0;
+                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, player1_seed, player2_seed, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'scheduled')";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("iiiss", $this->tournamentId, $roundId, $matchNumber, $pair['p1'], $pair['p2']);
+                $stmt->bind_param("iiissii", $this->tournamentId, $roundId, $matchNumber, $p1, $p2, $p1Seed, $p2Seed);
                 $stmt->execute();
+                $matchNumber++;
             }
-            $matchNumber++;
         }
     }
 
