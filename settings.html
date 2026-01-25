@@ -1,0 +1,299 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - XScore Tournament System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/settings.css" rel="stylesheet">
+    <link href="assets/css/team-autocomplete.css" rel="stylesheet">
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand py-0" href="dashboard.html">
+                <img src="assets/images/ab_logo.png" alt="AB Logo" class="app-logo">
+            </a>
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse"
+                data-bs-target="#settingsNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="settingsNav">
+                <div class="navbar-nav ms-auto gap-2">
+                    <a class="nav-link" href="dashboard.html">
+                        <i class="bi bi-house me-1"></i> Dashboard
+                    </a>
+                    <a class="nav-link" href="tournaments.html">
+                        <i class="bi bi-trophy me-1"></i> Tournaments
+                    </a>
+                    <a class="nav-link active" href="settings.html">
+                        <i class="bi bi-gear me-1"></i> Settings
+                    </a>
+                    <hr class="d-lg-none text-white-50 my-2">
+                    <a class="nav-link text-danger" href="#" id="logoutBtn">
+                        <i class="bi bi-box-arrow-right me-1"></i> Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Main Content -->
+        <div class="row">
+            <div class="col-12">
+                <!-- Settings Header -->
+                <div class="mt-4 mb-4">
+                    <h1 class="h3 fw-bold mb-1"><i class="bi bi-gear-fill text-primary me-2"></i>Settings</h1>
+                    <p class="text-muted small">Manage your profile and preferences</p>
+                </div>
+
+                <!-- Identity Section -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                        <h2 class="h5 fw-bold mb-0 text-primary"><i class="bi bi-person-fill me-2"></i>Identity</h2>
+                        <div class="section-controls" id="identityControls">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="editIdentityBtn">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- View Mode -->
+                        <div id="identityViewMode">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Real Name</label>
+                                    <div class="bg-light border-0 rounded-3 p-3">
+                                        <span id="viewRealName" class="fw-semibold">Loading...</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Display Name</label>
+                                    <div class="bg-light border-0 rounded-3 p-3">
+                                        <span id="viewDisplayName" class="fw-semibold">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Email Address</label>
+                                    <div class="bg-light border-0 rounded-3 p-3 opacity-50">
+                                        <span id="viewEmail" class="fw-semibold text-muted">Loading...</span>
+                                        <i class="bi bi-lock-fill small ms-2"></i>
+                                    </div>
+                                    <div class="form-text small opacity-75">Login email cannot be changed</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Edit Mode (Hidden by default) -->
+                        <div id="identityEditMode" class="d-none">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Real Name</label>
+                                    <input type="text" class="form-control" id="editRealName" placeholder="Enter your real name">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Display Name</label>
+                                    <input type="text" class="form-control" id="editDisplayName" placeholder="Enter your display name">
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Email Address</label>
+                                    <div class="bg-light border-0 rounded-3 p-3 opacity-50">
+                                        <span id="editEmail" class="fw-semibold text-muted">Loading...</span>
+                                        <i class="bi bi-lock-fill small ms-2"></i>
+                                    </div>
+                                    <div class="form-text small opacity-75">Login email cannot be changed</div>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2 mt-3">
+                                <button type="button" class="btn btn-primary btn-sm" id="saveIdentityBtn">
+                                    <i class="bi bi-check-circle me-1"></i>Save
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="cancelIdentityBtn">
+                                    <i class="bi bi-x-circle me-1"></i>Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Extra Info Section -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                        <h2 class="h5 fw-bold mb-0 text-primary"><i class="bi bi-info-circle-fill me-2"></i>Extra Info</h2>
+                        <div class="section-controls" id="extraInfoControls">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="editExtraInfoBtn">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- View Mode -->
+                        <div id="extraInfoViewMode">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Location</label>
+                                    <div class="bg-light border-0 rounded-3 p-3">
+                                        <span id="viewLocation" class="fw-semibold">Loading...</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Primary Beyblade Type</label>
+                                    <div class="bg-light border-0 rounded-3 p-3">
+                                        <span id="viewPreferredType" class="fw-semibold">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Team</label>
+                                    <div class="bg-light border-0 rounded-3 p-3">
+                                        <span id="viewTeam" class="fw-semibold">Loading...</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <!-- Empty column for layout balance -->
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Bio</label>
+                                    <div class="bg-light border-0 rounded-3 p-3">
+                                        <span id="viewBio" class="fw-semibold">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Edit Mode (Hidden by default) -->
+                        <div id="extraInfoEditMode" class="d-none">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Location</label>
+                                    <input type="text" class="form-control" id="editLocation" placeholder="Enter your location">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Primary Beyblade Type</label>
+                                    <input type="text" class="form-control" id="editPreferredType" placeholder="Enter your preferred beyblade type">
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Team</label>
+                                    <div class="position-relative">
+                                        <input type="text" class="form-control" id="editTeam" placeholder="Type team name...">
+                                        <div id="teamSuggestions" class="team-suggestions position-absolute w-100 bg-white border rounded shadow-sm mt-1" style="display: none; z-index: 1000;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <!-- Empty column for layout balance -->
+                                </div>
+                            </div>
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <label class="small fw-bold text-muted text-uppercase mb-1">Blader Bio</label>
+                                    <textarea class="form-control" id="editBio" rows="3" placeholder="Enter your bio"></textarea>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-primary btn-sm" id="saveExtraInfoBtn">
+                                    <i class="bi bi-check-circle me-1"></i>Save
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="cancelExtraInfoBtn">
+                                    <i class="bi bi-x-circle me-1"></i>Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Section -->
+                <div class="card border-0 shadow-sm mb-5">
+                    <div class="card-header bg-transparent border-0 pt-4 px-4 pb-0 d-flex justify-content-between align-items-center">
+                        <h2 class="h5 fw-bold mb-0 text-primary"><i class="bi bi-shield-lock-fill me-2"></i>Security</h2>
+                        <div class="section-controls" id="securityControls">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="editSecurityBtn">
+                                <i class="bi bi-pencil me-1"></i>Edit
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <!-- View Mode -->
+                        <div id="securityViewMode">
+                            <div class="bg-light border-0 rounded-3 p-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="fw-semibold">Password</span>
+                                    <span class="text-muted small">••••••••</span>
+                                </div>
+                            </div>
+                            <div class="form-text small opacity-75">Click Edit to change your password</div>
+                        </div>
+
+                        <!-- Edit Mode (Hidden by default) -->
+                        <div id="securityEditMode" class="d-none">
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold text-muted text-uppercase" for="currentPassword">Current Password</label>
+                                    <input type="password" class="form-control" id="currentPassword" placeholder="Enter current password">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold text-muted text-uppercase" for="newPassword">New Password</label>
+                                    <input type="password" class="form-control" id="newPassword" placeholder="Enter new password (min 6 chars)">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold text-muted text-uppercase" for="confirmPassword">Confirm New Password</label>
+                                    <input type="password" class="form-control" id="confirmPassword" placeholder="Confirm new password">
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-primary btn-sm" id="saveSecurityBtn">
+                                    <i class="bi bi-check-circle me-1"></i>Update Password
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="cancelSecurityBtn">
+                                    <i class="bi bi-x-circle me-1"></i>Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+        <div id="successToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-success text-white">
+                <i class="bi bi-check-circle-fill me-2"></i>
+                <strong class="me-auto">Success</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="successToastBody">
+                Changes saved successfully!
+            </div>
+        </div>
+        <div id="errorToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-header bg-danger text-white">
+                <i class="bi bi-exclamation-circle-fill me-2"></i>
+                <strong class="me-auto">Error</strong>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Close"></button>
+            </div>
+            <div class="toast-body" id="errorToastBody">
+                Failed to save changes.
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/settings-new.js"></script>
+</body>
+
+</html>

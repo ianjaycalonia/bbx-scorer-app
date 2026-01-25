@@ -1,0 +1,35 @@
+/* Team Autocomplete Styles */
+.team-field {
+    position: relative;
+}
+
+.team-autocomplete {
+    position: relative;
+}
+
+.team-suggestions {
+    max-height: 200px;
+    overflow-y: auto;
+    cursor: pointer;
+}
+
+.team-suggestion {
+    border-bottom: 1px solid #f0f0f0;
+    transition: background-color 0.2s ease;
+}
+
+.team-suggestion:hover {
+    background-color: #f8f9fa;
+}
+
+.team-suggestion:last-child {
+    border-bottom: none;
+}
+
+.team-suggestion:first-child {
+    border-radius: 0.375rem 0.375rem 0 0;
+}
+
+.team-suggestion:last-child {
+    border-radius: 0 0 0.375rem 0.375rem;
+}

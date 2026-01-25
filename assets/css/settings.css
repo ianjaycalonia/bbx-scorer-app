@@ -1,0 +1,31 @@
+.editable-field {
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.editable-field:hover {
+    background-color: #e2e8f0 !important;
+}
+
+.editable-field.editing {
+    background-color: #fff !important;
+    box-shadow: 0 0 0 2px var(--primary-color);
+}
+
+.editable-text {
+    border: none;
+    background: transparent;
+    width: 100%;
+    outline: none;
+}
+
+.avatar-preview {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.form-switch-offset .form-check-input {
+    left: 1rem;
+}

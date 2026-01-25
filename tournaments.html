@@ -1,0 +1,217 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tournaments - XScore Tournament System</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="assets/css/style.css" rel="stylesheet">
+    <link href="assets/css/tournaments.css" rel="stylesheet">
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark sticky-top">
+        <div class="container">
+            <a class="navbar-brand py-0" href="dashboard.html">
+                <img src="assets/images/ab_logo.png" alt="AB Logo" class="app-logo">
+            </a>
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse"
+                data-bs-target="#tournamentsNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="tournamentsNav">
+                <div class="navbar-nav ms-auto gap-2">
+                    <a class="nav-link" href="dashboard.html">
+                        <i class="bi bi-house me-1"></i> Dashboard
+                    </a>
+                    <a class="nav-link active" href="tournaments.html">
+                        <i class="bi bi-trophy me-1"></i> Tournaments
+                    </a>
+                    <a class="nav-link" href="settings.html">
+                        <i class="bi bi-gear me-1"></i> Settings
+                    </a>
+                    <hr class="d-lg-none text-white-50 my-2">
+                    <a class="nav-link text-danger" href="#" id="logoutBtn">
+                        <i class="bi bi-box-arrow-right me-1"></i> Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- Main Content -->
+        <div class="row">
+            <div class="col-12">
+                <!-- Tournaments Container -->
+                <div class="card border-0 shadow-sm mt-4">
+                    <div class="card-header bg-transparent border-0 pt-4 px-4 pb-0">
+                        <div
+                            class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3">
+                            <div>
+                                <h1 class="h3 fw-bold mb-1"><i
+                                        class="bi bi-trophy-fill text-primary me-2"></i>Tournaments</h1>
+                                <p class="text-muted small mb-0">Create and manage tournaments</p>
+                            </div>
+                            <button class="btn btn-primary btn-lg-mobile fw-bold shadow-sm"
+                                onclick="createTournament()">
+                                <i class="bi bi-plus-circle me-2"></i>Create New
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="card-body px-4">
+                        <!-- Filters -->
+                        <div class="row g-2 mb-4">
+                            <div class="col-6 col-md-4">
+                                <label class="small fw-bold text-muted text-uppercase mb-1">Status</label>
+                                <select class="form-select border-0 bg-light" id="statusFilter">
+                                    <option value="">All Status</option>
+                                    <option value="upcoming">Upcoming</option>
+                                    <option value="registration">Registration</option>
+                                    <option value="in_progress">In Progress</option>
+                                    <option value="completed">Completed</option>
+                                    <option value="cancelled">Cancelled</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-4">
+                                <label class="small fw-bold text-muted text-uppercase mb-1">Type</label>
+                                <select class="form-select border-0 bg-light" id="typeFilter">
+                                    <option value="">All Types</option>
+                                    <option value="single_elimination">SE</option>
+                                    <option value="double_elimination">DE</option>
+                                    <option value="swiss">Swiss</option>
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <label class="small fw-bold text-muted text-uppercase mb-1">Search</label>
+                                <div class="input-group">
+                                    <span class="input-group-text border-0 bg-light"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control border-0 bg-light" id="searchFilter"
+                                        placeholder="Tournament name...">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="tournamentsList" class="d-grid gap-3">
+                            <!-- Items populated via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tournament Modal -->
+    <div class="modal fade" id="tournamentModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Create Tournament</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="tournamentForm">
+                        <!-- Tournament Name (full width) -->
+                        <div class="row g-4">
+                            <div class="col-12">
+                                <div class="mb-3">
+                                    <label for="tournamentName" class="form-label">Tournament Name</label>
+                                    <input type="text" class="form-control" id="tournamentName" required
+                                        placeholder="Enter tournament name">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 1: Visibility | Number of Stadiums -->
+                        <div class="row g-4">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="tournamentVisibility" class="form-label">Visibility</label>
+                                    <select class="form-select" id="tournamentVisibility" required>
+                                        <option value="team_only" selected>Team Only</option>
+                                        <option value="open_for_all">Open for All</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="tournamentStadiums" class="form-label">Number of Stadiums</label>
+                                    <input type="number" class="form-control" id="tournamentStadiums" min="1" max="10"
+                                        value="1">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 2: Tournament Date | Location -->
+                        <div class="row g-4">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="tournamentDate" class="form-label">Tournament Date</label>
+                                    <input type="date" class="form-control" id="tournamentDate" required min="">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="tournamentLocation" class="form-label">Location</label>
+                                    <input type="text" class="form-control" id="tournamentLocation"
+                                        placeholder="Enter tournament location">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Row 3: Tournament Type | Number of Rounds (conditional) -->
+                        <div class="row g-4">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="tournamentType" class="form-label">Tournament Type</label>
+                                    <select class="form-select" id="tournamentType" required>
+                                        <option value="single_elimination" selected>Single Elimination</option>
+                                        <option value="double_elimination">Double Elimination</option>
+                                        <option value="swiss">Swiss</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3" id="swissRoundsField">
+                                    <label for="tournamentRounds" class="form-label">Number of Rounds</label>
+                                    <input type="number" class="form-control" id="tournamentRounds" min="3" max="15"
+                                        value="5" data-default-rounds="5" disabled>
+
+                                    <small class="form-text text-muted">Number of rounds for Swiss tournament (3-15
+                                        rounds)</small>
+                                </div>
+                                <div class="mb-3 d-none" id="placementCoverageField">
+                                    <label for="placementCoverage" class="form-label">Placement Cutoff</label>
+                                    <select class="form-select" id="placementCoverage" required>
+                                        <option value="">Select Cutoff</option>
+                                        <option value="3" selected>3rd Place</option>
+                                        <option value="4">4th Place</option>
+                                        <option value="5">5th Place</option>
+                                        <option value="6">6th Place</option>
+                                        <option value="7">7th Place</option>
+                                        <option value="8">8th Place</option>
+                                    </select>
+                                    <small class="form-text text-muted">Lowest placement that will be determined and
+                                        displayed</small>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveTournament()">Create Tournament</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="assets/js/ui_feedback.js"></script>
+    <script src="assets/js/tournaments_modal.js"></script>
+</body>
+
+</html>
