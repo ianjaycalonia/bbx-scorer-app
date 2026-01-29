@@ -228,12 +228,65 @@ class TournamentManager
 
     private function getPlayers()
     {
+        // Get all players
         $sql = "SELECT user_id as id FROM tournament_roles WHERE tournament_id = ? AND (FIND_IN_SET('player', role) > 0)";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $this->tournamentId);
         $stmt->execute();
-        $players = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        return array_values(array_filter($players, function ($p) {
+        $allPlayers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        
+        // Get all judges
+        $sql = "SELECT user_id as id FROM tournament_roles WHERE tournament_id = ? AND (FIND_IN_SET('judge', role) > 0)";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $this->tournamentId);
+        $stmt->execute();
+        $allJudges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $judgeIds = array_column($allJudges, 'id');
+        
+        // Get available stadiums for this tournament
+        $sql = "SELECT COUNT(*) as stadium_count FROM tournament_stadiums WHERE tournament_id = ?";
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $this->tournamentId);
+        $stmt->execute();
+        $stadiumResult = $stmt->get_result()->fetch_assoc();
+        $requiredJudges = (int) $stadiumResult['stadium_count'];
+        
+        // Separate players into judges and non-judges
+        $judgePlayers = [];
+        $nonJudgePlayers = [];
+        
+        foreach ($allPlayers as $player) {
+            if (in_array($player['id'], $judgeIds)) {
+                $judgePlayers[] = $player;
+            } else {
+                $nonJudgePlayers[] = $player;
+            }
+        }
+        
+        // Judge-first priority: Only include judges as players if we have enough non-judge players
+        // and enough judges remain to cover all stadiums
+        $availableJudges = count($judgePlayers);
+        $nonJudgeCount = count($nonJudgePlayers);
+        
+        // Calculate how many judges can play
+        $maxJudgesCanPlay = max(0, $availableJudges - $requiredJudges);
+        
+        // Only allow judges to play if:
+        // 1. We have enough non-judge players to form matches
+        // 2. We have enough judges left to cover all stadiums
+        $judgesAllowedToPlay = ($nonJudgeCount >= 2) && ($availableJudges > $requiredJudges);
+        
+        if ($judgesAllowedToPlay) {
+            // Include some judges as players, but prioritize non-judges
+            $judgesToInclude = min($maxJudgesCanPlay, count($judgePlayers));
+            $selectedJudges = array_slice($judgePlayers, 0, $judgesToInclude);
+            $finalPlayers = array_merge($nonJudgePlayers, $selectedJudges);
+        } else {
+            // Only include non-judge players
+            $finalPlayers = $nonJudgePlayers;
+        }
+        
+        return array_values(array_filter($finalPlayers, function ($p) {
             return !empty($p['id']);
         }));
     }

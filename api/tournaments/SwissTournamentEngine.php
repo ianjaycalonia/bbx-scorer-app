@@ -474,11 +474,16 @@ class SwissTournamentEngine
 
     private function getPlayers()
     {
+        // Get all players regardless of judge role
         $sql = "SELECT user_id as id FROM tournament_roles WHERE tournament_id = ? AND (FIND_IN_SET('player', role) > 0)";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $this->tournamentId);
         $stmt->execute();
-        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $allPlayers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+        return array_values(array_filter($allPlayers, function ($p) {
+            return !empty($p['id']);
+        }));
     }
 
     private function initializeSwissSeeds($players)
@@ -552,11 +557,12 @@ class SwissTournamentEngine
                 $p1 = $pair['p1'];
                 $p1Seed = $pair['p1_seed'] ?? 0;
                 $this->recordPlayerBye($p1, $this->getRoundNumberById($roundId));
-                // Defer bye completion: Create as scheduled, no winner/score yet
+                $this->recordPlayerBye($p1, $this->getRoundNumberById($roundId));
+                // Auto-complete Bye: Status 'completed', winner is p1
                 // Use match_number 0 for Byes so they don't consume a "Match X" label
-                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, player1_seed, player2_seed, status, winner_id, player1_score, player2_score) VALUES (?, ?, 0, ?, NULL, ?, 0, 'scheduled', NULL, 0, 0)";
+                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, player1_seed, player2_seed, status, winner_id, player1_score, player2_score) VALUES (?, ?, 0, ?, NULL, ?, 0, 'completed', ?, 0, 0)";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("iisi", $this->tournamentId, $roundId, $p1, $p1Seed);
+                $stmt->bind_param("iisis", $this->tournamentId, $roundId, $p1, $p1Seed, $p1);
                 $stmt->execute();
                 // recordRoundBye is not needed here if we rely on round completion logic, but keeping track for pairing is good.
                 // Actually, recordRoundBye updates tournament_rounds.bye_players which is used for pairing. We still need this.

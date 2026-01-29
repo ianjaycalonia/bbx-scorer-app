@@ -24,10 +24,13 @@
 }
 
 .rounds-container.collapsed .match-card {
-    min-height: auto !important;
-    height: auto !important;
-    padding: 0.4rem !important;
+    min-height: 60px !important;
+    height: 60px !important;
+    padding: 0.35rem 0.5rem !important;
     max-width: 200px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
 }
 
 .rounds-container.collapsed .match-header {
@@ -78,7 +81,7 @@
     font-size: 0.65rem !important;
     margin-top: 0.25rem !important;
     padding: 0.25rem !important;
-    background: rgba(0,0,0,0.05) !important;
+    background: rgba(0, 0, 0, 0.05) !important;
     border-radius: 4px !important;
     min-height: auto !important;
 }
@@ -123,7 +126,7 @@
 
 .rounds-container.collapsed .match-card:hover {
     transform: translateY(-1px) !important;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1) !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
 }
 
 .rounds-container.collapsed .player-row {
@@ -131,13 +134,19 @@
 }
 
 .rounds-container.collapsed .player-vs {
-    margin-top: 0.5rem !important;
+    margin-top: 0 !important;
     min-height: auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    flex: 1 !important;
 }
 
-.rounds-container.collapsed .match-card > div:nth-last-child(2),
-.rounds-container.collapsed .match-card > div:nth-last-child(3) {
-    min-height: auto !important;
+.rounds-container.collapsed .assignment-info,
+.rounds-container.collapsed .alert-warning,
+.rounds-container.collapsed .manual-override-container,
+.rounds-container.collapsed .text-muted.small {
+    display: none !important;
 }
 
 .rounds-container.collapsed .match-list {
@@ -161,7 +170,7 @@
         max-width: 220px !important;
         flex: 0 0 auto !important;
     }
-    
+
     .rounds-container.collapsed .match-card {
         width: 200px !important;
         max-width: 200px !important;
@@ -175,7 +184,7 @@
         min-width: 220px !important;
         max-width: 220px !important;
     }
-    
+
     .rounds-container.collapsed .match-card {
         width: 200px !important;
         max-width: 200px !important;
@@ -248,24 +257,32 @@
     max-width: 100% !important;
 }
 
+/* Maintain Tree Structure in Collapsed View */
 .rounds-container.collapsed .single-elimination-mode .match-list {
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 0.75rem !important;
+    display: grid !important;
+    --bracket-row-height: 80px !important;
+    gap: 0 !important;
 }
 
 .rounds-container.collapsed .single-elimination-mode .match-wrapper {
-    height: auto !important;
-    grid-row: auto !important;
-    grid-column: auto !important;
+    padding: 5px 10px !important;
 }
 
-.rounds-container.collapsed .match-wrapper[style*="grid-row"] {
-    grid-row: auto !important;
+.rounds-container.collapsed .single-elimination-mode .match-card {
+    height: 65px !important;
 }
 
-.rounds-container.collapsed .match-wrapper[style*="grid-column"] {
-    grid-column: auto !important;
+.rounds-container.collapsed .single-elimination-mode .match-header {
+    display: none !important;
+    /* Hide match header to save space in mini-bracket */
+}
+
+.rounds-container.collapsed .single-elimination-mode .collapsed-match-number {
+    display: block !important;
+}
+
+.rounds-container.collapsed .single-elimination-mode .player-vs {
+    min-height: auto !important;
 }
 
 /* Single Elimination Tournament Specific Styles */

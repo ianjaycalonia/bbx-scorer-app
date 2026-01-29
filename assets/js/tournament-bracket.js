@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 roundsContainer.classList.remove('collapsed');
             }
+            renderRounds(allRounds);
         });
     }
 
@@ -440,11 +441,14 @@ const renderRoundBlock = (round, isElimination, layout, totalRounds) => {
                     const finalsMatch = round.matches.find(m => (m.match_number || 0) < 90);
                     const finalsLayout = finalsMatch ? layout.layoutMap.get(getNumericMatchId(finalsMatch.id)) : null;
                     if (finalsLayout) {
+                        const isCollapsed = document.getElementById('roundsContainer')?.classList.contains('collapsed');
+                        const rowHeight = isCollapsed ? 80 : 280;
+                        const cardHeight = isCollapsed ? 65 : 190;
+
                         const rowSpan = finalsLayout.rowSpan;
-                        // Calculation: RowHeight is 280. Center is RowSpan * 140. Card Bottom is center + 95.
-                        // Next row starts at RowSpan * 280. Offset to label is +5px.
-                        // Target is 100px from card bottom.
-                        const pullUp = Math.max(0, (rowSpan * 140) - 190);
+                        // Calculation: RowHeight is current height. Center is RowSpan * (rowHeight/2).
+                        // Card Bottom is center + (cardHeight/2).
+                        const pullUp = Math.max(0, (rowSpan * (rowHeight / 2)) - cardHeight);
                         if (pullUp > 0) {
                             extraStyles = ` margin-top: -${pullUp}px;`;
                         }
@@ -903,7 +907,7 @@ const renderMatchCard = (match, isSingleElimStage) => {
                 <div class="player-row ${isP1Winner ? 'winner' : (isP2Winner ? 'loser' : '')}">
                     <div class="player-topline">
                         ${match.player1.seed ? `<span class="seed-number">${match.player1.seed}</span>` : ''}
-                        <span class="player-name">${escapeHtml(match.player1.name)}</span>
+                        <span class="player-name">${escapeHtml(match.player1.name || 'TBA')}</span>
                         <div class="player-meta">
                             <span class="match-score font-monospace fw-bold">${player1Score}</span>
                             ${isP1Winner ? '<i class="bi bi-trophy-fill text-warning match-trophy"></i>' : ''}
@@ -915,7 +919,7 @@ const renderMatchCard = (match, isSingleElimStage) => {
                 <div class="player-row ${isP2Winner ? 'winner' : (isP1Winner ? 'loser' : '')}">
                     <div class="player-topline">
                         ${match.player2.seed ? `<span class="seed-number">${match.player2.seed}</span>` : ''}
-                        <span class="player-name">${escapeHtml(match.player2.name)}</span>
+                        <span class="player-name">${escapeHtml(match.player2.name || 'TBA')}</span>
                         <div class="player-meta">
                             <span class="match-score font-monospace fw-bold">${player2Score}</span>
                             ${isP2Winner ? '<i class="bi bi-trophy-fill text-warning match-trophy"></i>' : ''}

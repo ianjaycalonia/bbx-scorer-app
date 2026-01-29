@@ -50,6 +50,10 @@ class MatchEngine
             return ['success' => true, 'assignments' => [], 'message' => 'Swiss round in progress - judge assignments locked'];
         }
 
+        if ($this->isFirstRound()) {
+            return ['success' => true, 'assignments' => [], 'message' => 'First round - judge assignments locked'];
+        }
+
         $this->resetCycleState();
 
         $this->conn->begin_transaction();
@@ -83,12 +87,15 @@ class MatchEngine
             $cycleMatches = $this->prepareCycleMatches($matches);
 
             $judgesAssigned = [];
+            $playersAssigned = [];
+            $assignmentCount = 0;
 
             foreach ($availableStadiums as $stadium) {
                 $stadiumId = (int) $stadium['id'];
 
-                $matchSelection = $this->selectNextMatchForStadium($stadiumId, $cycleMatches, $judgesAssigned);
+                $matchSelection = $this->selectNextMatchForStadium($stadiumId, $cycleMatches, $judgesAssigned, $playersAssigned);
                 if (!$matchSelection) {
+                    error_log("DEBUG: No match selected for stadium $stadiumId");
                     continue;
                 }
 
@@ -96,8 +103,11 @@ class MatchEngine
                 $tierKey = $matchSelection['tier'];
                 $matchOffset = $matchSelection['offset'];
 
-                $feasibleJudges = $this->getFeasibleJudgesForMatch($stadiumId, $matchEntry, $judgesAssigned);
+                $feasibleJudges = $this->getFeasibleJudgesForMatch($stadiumId, $matchEntry, $judgesAssigned, $playersAssigned);
                 if (empty($feasibleJudges)) {
+                    error_log("DEBUG: No feasible judges for stadium $stadiumId, match {$matchEntry['match']['id']}");
+                    error_log("DEBUG: Total feasible judges in system: " . count($this->feasibleJudgeIds ?? []));
+                    error_log("DEBUG: Feasible judge IDs: " . json_encode($this->feasibleJudgeIds ?? []));
                     continue;
                 }
 
@@ -108,6 +118,7 @@ class MatchEngine
 
                 $this->assignMatch($matchEntry['match']['id'], $judgeCandidate['id'], $stadiumId);
 
+
                 $assignments[] = [
                     'match_id' => $matchEntry['match']['id'],
                     'judge_id' => $judgeCandidate['id'],
@@ -115,6 +126,17 @@ class MatchEngine
                 ];
 
                 $judgesAssigned[$judgeCandidate['id']] = true;
+
+                $p1Id = $matchEntry['details']['player1_id'] ?? null;
+                $p2Id = $matchEntry['details']['player2_id'] ?? null;
+                if ($p1Id) {
+                    $playersAssigned[$p1Id] = true;
+                }
+                if ($p2Id) {
+                    $playersAssigned[$p2Id] = true;
+                }
+
+                $assignmentCount++;
 
                 $this->consumeJudgeSurplusForPlayers($matchEntry);
 
@@ -124,6 +146,7 @@ class MatchEngine
                     break;
                 }
             }
+
 
             $this->conn->commit();
             return ['success' => true, 'assignments' => $assignments];
@@ -173,7 +196,7 @@ class MatchEngine
         $feasibleJudges = $this->evaluateFeasibleJudgeSet($matches, $judgeIds);
         $feasibleCount = count($feasibleJudges);
 
-        $lock = $feasibleCount <= $required;
+        $lock = $feasibleCount < $required;
 
         $this->judgesLockedForJudging = $lock;
         $this->feasibleJudgeIds = $feasibleJudges;
@@ -197,11 +220,14 @@ class MatchEngine
     {
         $feasible = [];
 
+
         foreach ($judgeIds as $judgeId) {
-            if ($this->isJudgeGloballyFeasible($judgeId, $matches)) {
+            $isFeasible = $this->isJudgeGloballyFeasible($judgeId, $matches);
+            if ($isFeasible) {
                 $feasible[] = $judgeId;
             }
         }
+
 
         return $feasible;
     }
@@ -332,21 +358,59 @@ class MatchEngine
         return $tiered;
     }
 
-    private function canMatchProceedWithJudgePlayers(array $matchEntry): bool
+    private function isMatchStartable(array $matchEntry, array $judgesAssigned): bool
     {
+        if (!$this->isMatchReadyForAssignment($matchEntry['match'])) {
+            return false;
+        }
+
+        $p1 = $matchEntry['details']['player1_id'] ?? null;
+        $p2 = $matchEntry['details']['player2_id'] ?? null;
+
+        // Check DB occupancy
+        if (($p1 && $this->isJudgeCurrentlyPlaying($p1)) || ($p2 && $this->isJudgeCurrentlyPlaying($p2))) {
+            return false;
+        }
+
+        // Check intra-cycle judge occupancy
+        if (($p1 && isset($judgesAssigned[$p1])) || ($p2 && isset($judgesAssigned[$p2]))) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function canMatchProceedWithJudgePlayers(array $matchEntry, string $tierKey, array $tieredMatches, array $judgesAssigned): bool
+    {
+        $matchId = $matchEntry['match']['id'];
         $judgePlayers = $matchEntry['judge_player_count'] ?? 0;
         if ($judgePlayers === 0) {
             return true;
         }
 
-        if ($this->judgesLockedForJudging) {
-            return false;
+        // Check higher priority Phase 1 matches: can any of them start right now?
+        if (($tierKey === 'tier2' || $tierKey === 'tier3') && !empty($tieredMatches['tier1'])) {
+            foreach ($tieredMatches['tier1'] as $t1Entry) {
+                if ($t1Entry !== null && $this->isMatchStartable($t1Entry, $judgesAssigned)) {
+                    return false;
+                }
+            }
         }
 
-        return $this->judgeSurplusRemaining >= $judgePlayers;
+        // Check Phase 2 matches: can any of them start right now?
+        if ($tierKey === 'tier3' && !empty($tieredMatches['tier2'])) {
+            foreach ($tieredMatches['tier2'] as $t2Entry) {
+                if ($t2Entry !== null && $this->isMatchStartable($t2Entry, $judgesAssigned)) {
+                    return false;
+                }
+            }
+        }
+
+
+        return true;
     }
 
-    private function selectNextMatchForStadium(int $stadiumId, array $tieredMatches, array $judgesAssigned)
+    private function selectNextMatchForStadium(int $stadiumId, array $tieredMatches, array $judgesAssigned, array $playersAssigned)
     {
         foreach (['tier1', 'tier2', 'tier3'] as $tierKey) {
             if (empty($tieredMatches[$tierKey])) {
@@ -363,7 +427,14 @@ class MatchEngine
                     continue;
                 }
 
-                if (!$this->canMatchProceedWithJudgePlayers($entry)) {
+                // Intra-cycle occupancy check: Players in this match cannot be already assigned as judges
+                $p1 = $entry['details']['player1_id'] ?? null;
+                $p2 = $entry['details']['player2_id'] ?? null;
+                if (($p1 && isset($judgesAssigned[$p1])) || ($p2 && isset($judgesAssigned[$p2]))) {
+                    continue;
+                }
+
+                if (!$this->canMatchProceedWithJudgePlayers($entry, $tierKey, $tieredMatches, $judgesAssigned)) {
                     continue;
                 }
 
@@ -386,7 +457,7 @@ class MatchEngine
         return null;
     }
 
-    private function getFeasibleJudgesForMatch(int $stadiumId, array $matchEntry, array $judgesAssigned): array
+    private function getFeasibleJudgesForMatch(int $stadiumId, array $matchEntry, array $judgesAssigned, array $playersAssigned): array
     {
         $matchDetails = $matchEntry['details'];
         if (!$matchDetails) {
@@ -404,7 +475,7 @@ class MatchEngine
             if (!isset($this->feasibleJudgeLookup[$designatedJudgeId])) {
                 return [];
             }
-            if (!empty($judgesAssigned[$designatedJudgeId])) {
+            if (!empty($judgesAssigned[$designatedJudgeId]) || !empty($playersAssigned[$designatedJudgeId])) {
                 return [];
             }
 
@@ -418,7 +489,7 @@ class MatchEngine
             if (!isset($this->feasibleJudgeLookup[$stickyJudgeId])) {
                 return [];
             }
-            if (!empty($judgesAssigned[$stickyJudgeId])) {
+            if (!empty($judgesAssigned[$stickyJudgeId]) || !empty($playersAssigned[$stickyJudgeId])) {
                 return [];
             }
 
@@ -450,7 +521,7 @@ class MatchEngine
                 continue;
             }
 
-            if (!empty($judgesAssigned[$judgeId])) {
+            if (!empty($judgesAssigned[$judgeId]) || !empty($playersAssigned[$judgeId])) {
                 continue;
             }
 
@@ -512,27 +583,24 @@ class MatchEngine
         return $scored[0] ?? null;
     }
 
-    private function consumeJudgeSurplusForPlayers(array $matchEntry): void
+    private function consumeJudgeSurplusForPlayers(array $matchEntry)
     {
-        $judgePlayers = $matchEntry['judge_player_count'] ?? 0;
-        if ($judgePlayers <= 0) {
-            return;
-        }
-
-        $this->judgeSurplusRemaining = max(0, $this->judgeSurplusRemaining - $judgePlayers);
-
         $details = $matchEntry['details'] ?? [];
+        $judgePlayers = 0;
         foreach (['player1_id', 'player2_id'] as $slot) {
             $playerId = $details[$slot] ?? null;
             if ($playerId !== null && isset($this->judgeIdLookup[$playerId])) {
-                $this->judgesReservedForPlaying[$playerId] = true;
+                $judgePlayers++;
             }
         }
+
+        $this->judgeSurplusRemaining = max(0, $this->judgeSurplusRemaining - $judgePlayers);
     }
 
     private function isJudgeGloballyFeasible(string $judgeId, array $matches): bool
     {
-        if (!$this->isJudgeAvailableForAssignment($judgeId)) {
+        $available = $this->isJudgeAvailableForAssignment($judgeId);
+        if (!$available) {
             return false;
         }
 
@@ -558,10 +626,6 @@ class MatchEngine
             return false;
         }
 
-        if (isset($this->judgesReservedForPlaying[$judgeId])) {
-            return false;
-        }
-
         $homeStadium = $this->homeStadiumByJudge[$judgeId] ?? null;
         $isFloating = in_array($judgeId, $this->floatingJudges, true);
 
@@ -574,10 +638,6 @@ class MatchEngine
 
     private function isJudgeAvailableForAssignment(string $judgeId): bool
     {
-        if (isset($this->judgesReservedForPlaying[$judgeId])) {
-            return false;
-        }
-
         if (array_key_exists($judgeId, $this->judgeAvailabilityCache)) {
             return $this->judgeAvailabilityCache[$judgeId];
         }
@@ -642,6 +702,7 @@ class MatchEngine
                 JOIN tournaments t ON tr.tournament_id = t.id
                 WHERE tr.tournament_id = ?
                   AND t.tournament_type = 'swiss'
+                  AND tr.stage = 1
                   AND tr.status = 'in_progress'
                 LIMIT 1";
 
@@ -658,6 +719,23 @@ class MatchEngine
                 FROM tournament_rounds
                 WHERE tournament_id = ?
                   AND status = 'in_progress'
+                LIMIT 1";
+
+        $stmt = $this->conn->prepare($sql);
+        $stmt->bind_param("i", $this->tournamentId);
+        $stmt->execute();
+
+        return $stmt->get_result()->num_rows > 0;
+    }
+
+    private function isFirstRound(): bool
+    {
+        $sql = "SELECT 1
+                FROM tournament_rounds tr
+                WHERE tr.tournament_id = ?
+                  AND tr.stage = 1
+                  AND tr.round_number = 1
+                  AND tr.status IN ('active', 'in_progress')
                 LIMIT 1";
 
         $stmt = $this->conn->prepare($sql);
