@@ -1,7 +1,7 @@
 // Global Notification System
 let notificationAudio = null;
 let notificationAudioUnlocked = false;
-let currentUser = null;
+var currentUser = null;
 let currentTournamentId = null;
 let activeTournaments = [];
 let lastAssignmentKeys = new Set();

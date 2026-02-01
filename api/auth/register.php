@@ -2,47 +2,72 @@
 require_once '../config/database.php';
 require_once '../config/cors.php';
 
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 class Auth {
     private $conn;
 
     public function __construct() {
-        $database = new Database();
-        $this->conn = $database->getConnection();
+        try {
+            $database = new Database();
+            $this->conn = $database->getConnection();
+            if (!$this->conn) {
+                throw new Exception("Database connection failed");
+            }
+        } catch (Exception $e) {
+            error_log("Auth constructor error: " . $e->getMessage());
+            throw $e;
+        }
     }
 
     public function register($email, $password, $bladerName, $displayName) {
-        // Check if user already exists
-        $checkQuery = "SELECT id FROM users WHERE email = ?";
-        $stmt = $this->conn->prepare($checkQuery);
-        $stmt->bind_param("s", $email);
-        $stmt->execute();
-        $result = $stmt->get_result();
+        try {
+            // Check if user already exists
+            $checkQuery = "SELECT id FROM users WHERE email = ?";
+            $stmt = $this->conn->prepare($checkQuery);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare check query: " . $this->conn->error);
+            }
+            $stmt->bind_param("s", $email);
+            $stmt->execute();
+            $result = $stmt->get_result();
 
-        if ($result->num_rows > 0) {
-            return array("success" => false, "message" => "Email already exists");
-        }
+            if ($result->num_rows > 0) {
+                return array("success" => false, "message" => "Email already exists");
+            }
 
-        // Generate UUID for user
-        $userId = $this->generateUUID();
+            // Generate UUID for user
+            $userId = $this->generateUUID();
 
-        // Hash password properly
-        $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
+            // Hash password properly
+            $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
-        // Insert user
-        $query = "INSERT INTO users (id, email, blader_name, display_name, password) VALUES (?, ?, ?, ?, ?)";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bind_param("sssss", $userId, $email, $bladerName, $displayName, $hashedPassword);
+            // Insert user
+            $query = "INSERT INTO users (id, email, blader_name, display_name, password) VALUES (?, ?, ?, ?, ?)";
+            $stmt = $this->conn->prepare($query);
+            if (!$stmt) {
+                throw new Exception("Failed to prepare insert query: " . $this->conn->error);
+            }
+            $stmt->bind_param("sssss", $userId, $email, $bladerName, $displayName, $hashedPassword);
 
-        if ($stmt->execute()) {
-            // Create user profile
-            $profileQuery = "INSERT INTO user_profiles (user_id, location, preferred_beyblade_type, bio) VALUES (?, 'Tournament Arena', 'balance', 'New blader ready for battle!')";
-            $profileStmt = $this->conn->prepare($profileQuery);
-            $profileStmt->bind_param("s", $userId);
-            $profileStmt->execute();
+            if ($stmt->execute()) {
+                // Create user profile
+                $profileQuery = "INSERT INTO user_profiles (user_id, location, preferred_beyblade_type, bio) VALUES (?, 'Tournament Arena', 'balance', 'New blader ready for battle!')";
+                $profileStmt = $this->conn->prepare($profileQuery);
+                if ($profileStmt) {
+                    $profileStmt->bind_param("s", $userId);
+                    $profileStmt->execute();
+                }
 
-            return array("success" => true, "user_id" => $userId);
-        } else {
-            return array("success" => false, "message" => "Registration failed");
+                return array("success" => true, "user_id" => $userId);
+            } else {
+                throw new Exception("Failed to execute insert query: " . $stmt->error);
+            }
+        } catch (Exception $e) {
+            error_log("Registration error: " . $e->getMessage());
+            return array("success" => false, "message" => "Registration failed: " . $e->getMessage());
         }
     }
 

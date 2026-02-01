@@ -6,7 +6,7 @@
     const api = new ApiService();
 
     // Current user data
-    let currentUser = null;
+    var currentUser = null;
     let userProfile = null;
 
     // Initialize dashboard

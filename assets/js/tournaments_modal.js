@@ -1,6 +1,6 @@
 // Tournaments JavaScript - Modal functionality only
 
-let currentUser = null;
+var currentUser = null;
 let tournamentsList = [];
 
 const toggleSwissRoundsField = (isSwiss) => {

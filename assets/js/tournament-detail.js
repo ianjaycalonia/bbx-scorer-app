@@ -1,7 +1,7 @@
 // Tournament Detail JavaScript
 
 let currentTournament = null;
-let currentUser = null;
+var currentUser = null;
 
 function refreshTopCutDisplay(topCutValue) {
     const topCutDisplay = document.getElementById('topCutDisplay');
