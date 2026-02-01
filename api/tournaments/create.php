@@ -151,7 +151,7 @@ try {
                 $rank_to = $tournamentData['rank_to'] ?? 5;
 
                 $stmt->bind_param(
-                    "sssssissiii",
+                    "sssssissiiii",
                     $name,
                     $date,
                     $location,
@@ -362,16 +362,16 @@ try {
                 if ($tournament['created_by'] !== $sessionUserId)
                     return ['success' => false, 'message' => 'Only tournament creator can assign judges'];
 
-                $sql = "SELECT id FROM tournament_judges WHERE tournament_id = ? AND user_id = ?";
+                $sql = "SELECT id FROM tournament_roles WHERE tournament_id = ? AND user_id = ?";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ss", $tournamentId, $userId);
+                $stmt->bind_param("is", $tournamentId, $userId);
                 $stmt->execute();
                 if ($stmt->get_result()->num_rows > 0)
-                    return ['success' => false, 'message' => 'User is already assigned as a judge'];
+                    return ['success' => false, 'message' => 'User is already assigned to this tournament'];
 
-                $sql = "INSERT INTO tournament_judges (tournament_id, user_id) VALUES (?, ?)";
+                $sql = "INSERT INTO tournament_roles (tournament_id, user_id, role, status) VALUES (?, ?, 'judge', 'accepted')";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ss", $tournamentId, $userId);
+                $stmt->bind_param("is", $tournamentId, $userId);
 
                 return $stmt->execute() ? ['success' => true, 'message' => 'Judge assigned successfully'] : ['success' => false, 'message' => 'Failed to assign judge'];
             } catch (Exception $e) {
@@ -382,9 +382,13 @@ try {
         public function getTournamentJudges($tournamentId)
         {
             try {
-                $sql = "SELECT tj.id, tj.user_id, tj.assigned_at, u.email, u.display_name, u.blader_name FROM tournament_judges tj JOIN users u ON tj.user_id = u.id WHERE tj.tournament_id = ? ORDER BY tj.assigned_at ASC";
+                $sql = "SELECT tr.id, tr.user_id, tr.assigned_at, u.email, u.display_name, u.blader_name 
+                        FROM tournament_roles tr 
+                        JOIN users u ON tr.user_id = u.id 
+                        WHERE tr.tournament_id = ? AND tr.role = 'judge' 
+                        ORDER BY tr.assigned_at ASC";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("s", $tournamentId);
+                $stmt->bind_param("i", $tournamentId);
                 $stmt->execute();
                 $judges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -412,16 +416,16 @@ try {
                 if ($tournament['created_by'] !== $sessionUserId)
                     return ['success' => false, 'message' => 'Only tournament creator can remove judges'];
 
-                $sql = "SELECT id FROM tournament_judges WHERE tournament_id = ? AND user_id = ?";
+                $sql = "SELECT id FROM tournament_roles WHERE tournament_id = ? AND user_id = ? AND role = 'judge'";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ss", $tournamentId, $userId);
+                $stmt->bind_param("is", $tournamentId, $userId);
                 $stmt->execute();
                 if ($stmt->get_result()->num_rows === 0)
                     return ['success' => false, 'message' => 'Judge not found in tournament'];
 
-                $sql = "DELETE FROM tournament_judges WHERE tournament_id = ? AND user_id = ?";
+                $sql = "DELETE FROM tournament_roles WHERE tournament_id = ? AND user_id = ? AND role = 'judge'";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("ss", $tournamentId, $userId);
+                $stmt->bind_param("is", $tournamentId, $userId);
 
                 return $stmt->execute() ? ['success' => true, 'message' => 'Judge removed successfully'] : ['success' => false, 'message' => 'Failed to remove judge'];
             } catch (Exception $e) {

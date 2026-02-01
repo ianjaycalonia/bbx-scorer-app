@@ -10,10 +10,12 @@ try {
     require_once '../config/database.php';
     require_once '../config/cors.php';
 
-    class UserProfile {
+    class UserProfile
+    {
         private $conn;
 
-        public function __construct() {
+        public function __construct()
+        {
             try {
                 $database = new Database();
                 $this->conn = $database->getConnection();
@@ -25,12 +27,13 @@ try {
             }
         }
 
-        public function getProfile($userId) {
+        public function getProfile($userId)
+        {
             try {
                 if (empty($userId)) {
                     throw new Exception('User ID is empty');
                 }
-                
+
                 $query = "SELECT u.id, u.email, u.blader_name, u.display_name, u.avatar_url, u.team_id,
                                   t.name as team_name,
                                   up.location, up.preferred_beyblade_type, up.bio, 
@@ -39,17 +42,17 @@ try {
                           LEFT JOIN teams t ON u.team_id = t.id
                           LEFT JOIN user_profiles up ON u.id = up.user_id 
                           WHERE u.id = ?";
-                
+
                 $stmt = $this->conn->prepare($query);
                 if (!$stmt) {
                     throw new Exception('Failed to prepare query: ' . $this->conn->error);
                 }
-                
+
                 $stmt->bind_param("s", $userId);
                 if (!$stmt->execute()) {
                     throw new Exception('Failed to execute query: ' . $stmt->error);
                 }
-                
+
                 $result = $stmt->get_result();
 
                 if ($result->num_rows > 0) {
@@ -63,11 +66,12 @@ try {
             }
         }
 
-        public function updateProfile($userId, $data) {
+        public function updateProfile($userId, $data)
+        {
             try {
                 error_log("DEBUG: updateProfile called for user: " . $userId);
                 error_log("DEBUG: Received data: " . json_encode($data));
-                
+
                 // Handle team assignment
                 $teamId = null;
                 if (isset($data->team_name) && !empty($data->team_name)) {
@@ -78,7 +82,7 @@ try {
                         $checkTeamStmt->bind_param("s", $data->team_name);
                         $checkTeamStmt->execute();
                         $teamResult = $checkTeamStmt->get_result();
-                        
+
                         if ($teamResult->num_rows > 0) {
                             // Team exists, use existing team_id
                             $teamRow = $teamResult->fetch_assoc();
@@ -96,17 +100,18 @@ try {
                         }
                     }
                 }
-                
+
                 // Update users table
                 $userQuery = "UPDATE users SET blader_name = ?, display_name = ?, avatar_url = ?, team_id = ? WHERE id = ?";
                 $userStmt = $this->conn->prepare($userQuery);
                 if (!$userStmt) {
                     throw new Exception('Failed to prepare user update query');
                 }
-                
-                $userStmt->bind_param("sssis", 
-                    $data->blader_name, 
-                    $data->display_name, 
+
+                $userStmt->bind_param(
+                    "sssis",
+                    $data->blader_name,
+                    $data->display_name,
                     $data->avatar_url,
                     $teamId,
                     $userId
@@ -121,13 +126,14 @@ try {
                 $profileQuery = "UPDATE user_profiles SET location = ?, preferred_beyblade_type = ?, bio = ?, 
                                  email_notifications = ?, public_profile = ?, show_tournament_results = ? 
                                  WHERE user_id = ?";
-                
+
                 $profileStmt = $this->conn->prepare($profileQuery);
                 if (!$profileStmt) {
                     throw new Exception('Failed to prepare profile update query');
                 }
-                
-                $profileStmt->bind_param("sssiiis", 
+
+                $profileStmt->bind_param(
+                    "sssiiis",
                     $data->location,
                     $data->preferred_beyblade_type,
                     $data->bio,
@@ -140,7 +146,7 @@ try {
                 $profileResult = $profileStmt->execute();
                 error_log("DEBUG: User_profiles table update result: " . ($profileResult ? "SUCCESS" : "FAILED"));
                 error_log("DEBUG: User_profiles table affected rows: " . $this->conn->affected_rows);
-                
+
                 // Check if profile row exists for this user
                 $checkQuery = "SELECT COUNT(*) as count FROM user_profiles WHERE user_id = ?";
                 $checkStmt = $this->conn->prepare($checkQuery);
@@ -163,18 +169,20 @@ try {
             }
         }
 
-        public function createProfile($userId, $data) {
+        public function createProfile($userId, $data)
+        {
             try {
                 $query = "INSERT INTO user_profiles (user_id, location, preferred_beyblade_type, bio, 
                                                  email_notifications, public_profile, show_tournament_results) 
                           VALUES (?, ?, ?, ?, ?, ?, ?)";
-                
+
                 $stmt = $this->conn->prepare($query);
                 if (!$stmt) {
                     throw new Exception('Failed to prepare profile creation query');
                 }
-                
-                $stmt->bind_param("sssiii", 
+
+                $stmt->bind_param(
+                    "ssssiii",
                     $userId,
                     $data->location,
                     $data->preferred_beyblade_type,
@@ -206,7 +214,7 @@ try {
     }
 
     $userId = $_SESSION['user_id'];
-    
+
     try {
         $userProfile = new UserProfile();
     } catch (Exception $e) {

@@ -561,7 +561,7 @@ class SwissTournamentEngine
                 // Insert bye match as scheduled so scoring service can complete it once round finishes
                 $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, player1_seed, player2_seed, status) VALUES (?, ?, 0, ?, NULL, ?, 0, 'scheduled')";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("iiisi", $this->tournamentId, $roundId, $p1, $p1Seed);
+                $stmt->bind_param("iisi", $this->tournamentId, $roundId, $p1, $p1Seed);
                 $stmt->execute();
                 $this->recordRoundBye($roundId, $p1);
             } else {

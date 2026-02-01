@@ -386,6 +386,9 @@ class TournamentManager
                     ];
                 }
             }
+        } else {
+            // Return empty result if no rankings
+            return ['success' => true, 'podium' => [], 'swissKing' => null];
         }
 
         $swissKing = null;
