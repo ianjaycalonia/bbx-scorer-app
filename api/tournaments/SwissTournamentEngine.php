@@ -556,16 +556,13 @@ class SwissTournamentEngine
             if ($pair['is_bye']) {
                 $p1 = $pair['p1'];
                 $p1Seed = $pair['p1_seed'] ?? 0;
-                $this->recordPlayerBye($p1, $this->getRoundNumberById($roundId));
-                $this->recordPlayerBye($p1, $this->getRoundNumberById($roundId));
-                // Auto-complete Bye: Status 'completed', winner is p1
-                // Use match_number 0 for Byes so they don't consume a "Match X" label
-                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, player1_seed, player2_seed, status, winner_id, player1_score, player2_score) VALUES (?, ?, 0, ?, NULL, ?, 0, 'completed', ?, 0, 0)";
+                $roundNumber = $this->getRoundNumberById($roundId);
+                $this->recordPlayerBye($p1, $roundNumber);
+                // Insert bye match as scheduled so scoring service can complete it once round finishes
+                $sql = "INSERT INTO tournament_matches (tournament_id, round_id, match_number, player1_id, player2_id, player1_seed, player2_seed, status) VALUES (?, ?, 0, ?, NULL, ?, 0, 'scheduled')";
                 $stmt = $this->conn->prepare($sql);
-                $stmt->bind_param("iisis", $this->tournamentId, $roundId, $p1, $p1Seed, $p1);
+                $stmt->bind_param("iiisi", $this->tournamentId, $roundId, $p1, $p1Seed);
                 $stmt->execute();
-                // recordRoundBye is not needed here if we rely on round completion logic, but keeping track for pairing is good.
-                // Actually, recordRoundBye updates tournament_rounds.bye_players which is used for pairing. We still need this.
                 $this->recordRoundBye($roundId, $p1);
             } else {
                 $p1 = $pair['p1'];

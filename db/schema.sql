@@ -285,7 +285,7 @@ INSERT INTO users (id, email, blader_name, display_name, password, created_at, u
 (UUID(), 'snwlf@bbx.test', 'Gray', 'SNWLF', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
 (UUID(), 'hades@bbx.test', 'Bruce Hendrexiene Caballes', 'HADES', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
 (UUID(), 'oakaayo@bbx.test', 'Michael Segovia', 'OA Kaayo', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
-(UUID(), 'mountaindew@bbx.test', 'Jhon Kenneith Luntayao Magno', 'MountainDew', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
+(UUID(), 'caelus@bbx.test', 'Jhon Kenneith Luntayao Magno', 'MountainDew', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
 (UUID(), 'nightmare@bbx.test', 'Julius Ralph Capisnon', 'NIGHTMARE', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
 (UUID(), 'gentlesky@bbx.test', 'Jumar Guarino', 'GentleSky', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
 (UUID(), 'nero@bbx.test', 'Jeii Anthony', 'Nero', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
@@ -293,13 +293,12 @@ INSERT INTO users (id, email, blader_name, display_name, password, created_at, u
 (UUID(), 'paoz@bbx.test', 'Juan Paolo Go Zafra', 'Pao-Z', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
 (UUID(), 'vibe@bbx.test', 'Arnold Jay Forrosuelo', 'ViBE', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
 (UUID(), 'cerberus@bbx.test', 'Dawn Christy', 'Ce(r)berus', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
-(UUID(), 'excalibur@bbx.test', 'Lance Arreza', 'Excalibur', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW())
+(UUID(), 'burukutu@bbx.test', 'Lance Arreza', 'Burukutu', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
+(UUID(), 'nicky@bbx.test', 'Nicky', 'Nicky', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
+(UUID(), 'desmond@bbx.test', 'Desmond', 'Desmond', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW()),
+(UUID(), 'mynameisjeff@bbx.test', 'Jeff Justil', 'MyNameIsJeff', '$2y$10$AbCdEfGhIjKlMnOpQrStUvWxYz1234567890abcdef', NOW(), NOW())
 ON DUPLICATE KEY UPDATE email = VALUES(email);
 
--- Insert sample tournaments
-INSERT INTO tournaments (name, date, location, max_participants, status, tournament_type, number_of_stadiums, rules, created_by, created_at, updated_at) VALUES 
-('Practice Tournament', '2025-01-10', 'Local Stadium', 16, 'upcoming', 'swiss', 6, 'Swiss format, 5 rounds. Casual tournament for testing.', 'fd55ab22-377e-404c-bab8-54a229940352', NOW(), NOW())
-ON DUPLICATE KEY UPDATE name = VALUES(name);
 SET FOREIGN_KEY_CHECKS = 1;
 
 SELECT 'Database consolidated successfully!' as status;

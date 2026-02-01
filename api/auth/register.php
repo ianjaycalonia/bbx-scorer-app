@@ -29,9 +29,9 @@ class Auth {
         $hashedPassword = password_hash($password, PASSWORD_DEFAULT);
 
         // Insert user
-        $query = "INSERT INTO users (id, email, blader_name, display_name) VALUES (?, ?, ?, ?)";
+        $query = "INSERT INTO users (id, email, blader_name, display_name, password) VALUES (?, ?, ?, ?, ?)";
         $stmt = $this->conn->prepare($query);
-        $stmt->bind_param("ssss", $userId, $email, $bladerName, $displayName);
+        $stmt->bind_param("sssss", $userId, $email, $bladerName, $displayName, $hashedPassword);
 
         if ($stmt->execute()) {
             // Create user profile

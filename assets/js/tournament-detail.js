@@ -775,6 +775,15 @@ class UserSelectionHandler {
                                 </div>
                             </div>
                         </div>
+                        <div class="mb-3">
+                            <div class="input-group">
+                                <input type="text" class="form-control form-control-sm" id="unregisteredPlayerName" placeholder="Add unregistered player by name...">
+                                <button class="btn btn-success btn-sm" type="button" id="addUnregisteredBtn">
+                                    <i class="bi bi-plus-circle me-1"></i>Add
+                                </button>
+                            </div>
+                            <small class="text-muted">Auto-registers player with temporary credentials (name@bbx.test / test123)</small>
+                        </div>
                         <div class="people-list" style="max-height: 400px; overflow-y: auto;">
                             <div class="row">
                                 <div class="col-md-6" id="peopleCol1"></div>
@@ -839,6 +848,74 @@ class UserSelectionHandler {
 
         // Initialize selected count on open (covers pre-checked states if reused)
         this.updateSelectedCount();
+
+        // Add unregistered player button handler
+        this.modalEl.querySelector('#addUnregisteredBtn').addEventListener('click', async () => {
+            const nameInput = this.modalEl.querySelector('#unregisteredPlayerName');
+            const playerName = nameInput.value.trim();
+
+            if (!playerName) {
+                showToast('Please enter a player name', { variant: 'warning' });
+                return;
+            }
+
+            try {
+                const response = await fetch('api/auth/register.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'register',
+                        email: `${playerName.toLowerCase().replace(/\s+/g, '')}@bbx.test`,
+                        password: 'test123',
+                        blader_name: playerName,
+                        display_name: playerName
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Add the newly created user to the list
+                    const newUser = {
+                        id: result.user_id,
+                        email: `${playerName.toLowerCase().replace(/\s+/g, '')}@bbx.test`,
+                        display_name: playerName,
+                        blader_name: playerName
+                    };
+                    this.users.push(newUser);
+
+                    // Add to the UI
+                    const col1 = this.modalEl.querySelector('#peopleCol1');
+                    const col2 = this.modalEl.querySelector('#peopleCol2');
+                    const displayName = escapeHtml(playerName);
+                    const userJson = JSON.stringify(newUser).replace(/'/g, '&apos;');
+                    const html = `
+                        <div class="form-check person-item mb-2" data-search="${displayName.toLowerCase()} ${newUser.email.toLowerCase()}">
+                            <input class="form-check-input person-checkbox" type="checkbox" id="user-${newUser.id}" data-user='${userJson}' checked>
+                            <label class="form-check-label text-truncate w-100" for="user-${newUser.id}">
+                                <strong>${displayName}</strong><br>
+                                <small class="text-muted">${newUser.email}</small>
+                            </label>
+                        </div>
+                    `;
+                    if (this.users.length % 2 === 0) {
+                        col1.innerHTML += html;
+                    } else {
+                        col2.innerHTML += html;
+                    }
+
+                    nameInput.value = '';
+                    this.updateSelectedCount();
+
+                    showToast(`Player "${playerName}" registered successfully`, { variant: 'success' });
+                } else {
+                    showToast(`Failed to register player: ${result.message}`, { variant: 'danger' });
+                }
+            } catch (error) {
+                console.error('Error registering player:', error);
+                showToast('Failed to register player. Please try again.', { variant: 'danger' });
+            }
+        });
 
         this.modalEl.querySelector('#confirm-select-people').addEventListener('click', () => {
             const selectedCheckboxes = this.modalEl.querySelectorAll('.person-checkbox:checked');

@@ -8,6 +8,8 @@ let currentTournamentParticipants = null;
 let currentViewStage = null;
 let stadiumBindings = [];
 let lastAssignmentKeys = new Set(); // To track which assignments we've already notified about
+let notificationAudio = null;
+let notificationAudioUnlocked = false;
 
 // Bracket connector state
 let connectorResizeObserver = null;
@@ -20,6 +22,26 @@ let connectorScrollHandler = null;
 let connectorCurrentRounds = [];
 let connectorCurrentContainer = null;
 let connectorConnectorsEnabled = false;
+
+const formatOrdinal = (value) => {
+    const n = parseInt(value, 10);
+    if (!Number.isInteger(n)) return `${value}`;
+    const remainder100 = n % 100;
+    if (remainder100 >= 11 && remainder100 <= 13) {
+        return `${n}th`;
+    }
+    const remainder10 = n % 10;
+    switch (remainder10) {
+        case 1:
+            return `${n}st`;
+        case 2:
+            return `${n}nd`;
+        case 3:
+            return `${n}rd`;
+        default:
+            return `${n}th`;
+    }
+};
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -47,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderRounds(allRounds);
         });
     }
+
+    initializeNotificationAudio();
 
     loadTournamentAndBracket().then(() => {
         // Check for hash to switch tab (only for Swiss tournaments)
@@ -106,6 +130,7 @@ const loadTournamentAndBracket = async () => {
         }
 
         refreshPageData();
+        refreshResultsPanel();
     } catch (error) {
         console.error('Error loading tournament:', error);
     }
@@ -115,11 +140,16 @@ const refreshPageData = async (showNotification = false) => {
     const promises = [refreshBracket(false)];
 
     // Only refresh standings for Swiss tournaments
-    if (currentTournament?.tournament_type === 'swiss') {
-        promises.push(refreshStandings());
+    if (currentTournament && currentTournament.tournament_type === 'swiss') {
+        promises.push(refreshStandings(false));
     }
 
     await Promise.all(promises);
+
+    // Check for player match assignments after data refresh
+    checkPlayerMatchAssignment();
+
+    await refreshResultsPanel();
     if (showNotification) {
         showToast('All data refreshed.', { variant: 'success' });
     }
@@ -153,7 +183,7 @@ const refreshBracket = async (showNotification = false) => {
             return;
         }
 
-        allRounds = result.rounds ?? [];
+        allRounds = normalizeRoundsData(result.rounds ?? []);
         byeData = result.byes ?? null;
         stadiumBindings = result.stadium_bindings ?? [];
 
@@ -188,6 +218,47 @@ const refreshBracket = async (showNotification = false) => {
     }
 };
 
+const normalizeRoundsData = (rounds = []) => {
+    return rounds.map(round => {
+        const normalizedMatches = (round.matches ?? []).map(match => {
+            const player1 = match.player1 ?? {};
+            const player2 = match.player2 ?? {};
+            const judge = match.judge ?? null;
+            const stadium = match.stadium ?? null;
+            const roundNumber = match.round_number ?? round.round_number ?? null;
+            const stageNumber = match.stage ?? round.stage ?? null;
+
+            const player1Id = player1.id ?? match.player1_id ?? null;
+            const player2Id = player2.id ?? match.player2_id ?? null;
+            const judgeId = judge?.id ?? match.judge_id ?? null;
+            const stadiumId = stadium?.id ?? match.stadium_id ?? null;
+
+            return {
+                ...match,
+                player1,
+                player2,
+                judge,
+                stadium,
+                round_number: roundNumber,
+                stage: stageNumber,
+                player1_id: player1Id,
+                player2_id: player2Id,
+                player1_name: player1.name ?? match.player1_name ?? 'TBA',
+                player2_name: player2.name ?? match.player2_name ?? 'TBA',
+                judge_id: judgeId,
+                judge_name: judge?.name ?? match.judge_name ?? 'Unassigned',
+                stadium_id: stadiumId,
+                stadium_name: stadium?.name ?? match.stadium_name ?? 'Unassigned'
+            };
+        });
+
+        return {
+            ...round,
+            matches: normalizedMatches
+        };
+    });
+};
+
 const refreshStandings = async () => {
     try {
         const response = await fetch(`api/tournaments/rounds.php?action=getStandings&tournament_id=${currentTournamentId}`);
@@ -214,10 +285,16 @@ const renderStandings = (standings) => {
 
     const topCut = currentTournament?.top_cut ? parseInt(currentTournament.top_cut, 10) : 0;
     const swissComplete = isSwissRoundsComplete(allRounds);
+    const stageTwoActive = (currentTournament?.current_stage ?? 1) >= 2;
+    const showAdvancedBadges = topCut > 0 && (swissComplete || stageTwoActive);
 
     list.innerHTML = standings.map((s, index) => {
         const rank = index + 1;
-        const isAdvanced = swissComplete && topCut > 0 && rank <= topCut;
+        const isAdvanced = showAdvancedBadges && rank <= topCut;
+        const fqiPercent = ((s.fqi ?? 0) * 100).toFixed(0);
+        const pointDiff = s.point_diff ?? ((s.pf ?? 0) - (s.pa ?? 0));
+        const diffLabel = pointDiff > 0 ? `+${pointDiff}` : pointDiff;
+        const diffClass = pointDiff > 0 ? 'text-success' : (pointDiff < 0 ? 'text-danger' : 'text-muted');
 
         return `
         <tr>
@@ -238,14 +315,150 @@ const renderStandings = (standings) => {
                 <span class="fw-bold text-primary">${s.bey_points}</span>
             </td>
             <td class="text-center">
-                <span class="fw-bold text-info">${parseFloat(s.strength_metric ?? s.ompa).toFixed(2)}</span>
+                <span class="fw-bold text-info">${fqiPercent}%</span>
             </td>
             <td class="text-center">
-                <span class="badge bg-light text-dark border">${(s.fqi * 100).toFixed(0)}%</span>
+                <span class="fw-bold ${diffClass}">${diffLabel}</span>
             </td>
         </tr>
     `;
     }).join('');
+};
+
+const refreshResultsPanel = async () => {
+    const loading = document.getElementById('resultsLoading');
+    const empty = document.getElementById('resultsEmpty');
+    const content = document.getElementById('resultsContent');
+    const resultsTabItem = document.getElementById('resultsTabItem');
+    const resultsTabBtn = document.getElementById('results-tab');
+    const bracketTabBtn = document.getElementById('bracket-tab');
+    if (!loading || !empty || !content || !resultsTabItem || !resultsTabBtn)
+        return;
+
+    const tournamentCompleted = currentTournament && currentTournament.status === 'completed';
+
+    if (!tournamentCompleted) {
+        // Hide tab and ensure users aren't stuck on a hidden pane
+        if (!resultsTabItem.classList.contains('d-none')) {
+            resultsTabItem.classList.add('d-none');
+        }
+        if (resultsTabBtn.classList.contains('active') && bracketTabBtn) {
+            const bracketTab = bootstrap.Tab.getOrCreateInstance(bracketTabBtn);
+            bracketTab.show();
+        }
+
+        loading.classList.add('d-none');
+        empty.classList.remove('d-none');
+        empty.textContent = 'Results will appear once the tournament is completed.';
+        content.classList.add('d-none');
+        return;
+    }
+
+    resultsTabItem.classList.remove('d-none');
+
+    loading.classList.remove('d-none');
+    empty.classList.add('d-none');
+    content.classList.add('d-none');
+
+    try {
+        const response = await fetch(`api/tournaments/rounds.php?action=getPodium&tournament_id=${currentTournamentId}`);
+        const result = await response.json();
+        loading.classList.add('d-none');
+
+        if (result.success && result.podium) {
+            content.classList.remove('d-none');
+            empty.classList.add('d-none');
+            renderResultsPodium(result.podium, result.swissKing || null);
+        } else {
+            empty.classList.remove('d-none');
+            empty.textContent = 'Results not available yet. Please check back later.';
+        }
+    } catch (error) {
+        console.error('Error fetching results:', error);
+        loading.classList.add('d-none');
+        empty.classList.remove('d-none');
+        empty.textContent = 'Unable to load results right now. Please try again later.';
+    }
+};
+
+const renderResultsPodium = (podium, swissKing = null) => {
+    const first = podium?.[1] || null;
+    const second = podium?.[2] || null;
+    const third = podium?.[3] || null;
+
+    updateResultsSlot(first, 'resultsPodium1stName', 'resultsPodium1stAvatar');
+    updateResultsSlot(second, 'resultsPodium2ndName', 'resultsPodium2ndAvatar');
+    updateResultsSlot(third, 'resultsPodium3rdName', 'resultsPodium3rdAvatar');
+
+    const swissSection = document.getElementById('resultsSwissKingSection');
+    const swissName = document.getElementById('resultsSwissKingName');
+    if (swissSection && swissName) {
+        if (swissKing && swissKing.name) {
+            swissSection.classList.remove('d-none');
+            swissName.textContent = swissKing.name;
+        } else {
+            swissSection.classList.add('d-none');
+            swissName.textContent = '---';
+        }
+    }
+
+    const extendedSection = document.getElementById('resultsExtendedRankings');
+    const extendedList = document.getElementById('resultsExtendedRankingsList');
+    if (!extendedSection || !extendedList)
+        return;
+
+    const extendedHtml = buildResultsPlacements(podium);
+    if (extendedHtml) {
+        extendedList.innerHTML = extendedHtml;
+        extendedSection.classList.remove('d-none');
+    } else {
+        extendedSection.classList.add('d-none');
+        extendedList.innerHTML = '';
+    }
+};
+
+const updateResultsSlot = (player, nameId, avatarId) => {
+    const nameEl = document.getElementById(nameId);
+    const avatarEl = document.getElementById(avatarId);
+    const displayName = player?.name?.trim() || '---';
+    if (nameEl)
+        nameEl.textContent = displayName;
+
+    if (avatarEl) {
+        const initial = displayName !== '---' ? displayName.charAt(0).toUpperCase() : '?';
+        avatarEl.textContent = initial;
+    }
+};
+
+const buildResultsPlacements = (podium) => {
+    if (!podium)
+        return '';
+
+    const topCut = parseInt(currentTournament?.top_cut ?? 0, 10) || 0;
+    const rankTo = parseInt(currentTournament?.rank_to ?? 0, 10) || 0;
+    const maxKey = Object.keys(podium)
+        .map((key) => parseInt(key, 10))
+        .filter((n) => Number.isInteger(n))
+        .reduce((acc, val) => Math.max(acc, val), 0);
+
+    const limit = Math.max(4, topCut, rankTo, maxKey);
+    let html = '';
+    for (let place = 4; place <= limit; place++) {
+        const player = podium[place];
+        if (!player || !player.name)
+            continue;
+        const ordinal = formatOrdinal(place).toUpperCase();
+        html += `
+            <div class="col-6 col-md-4 col-lg-3">
+                <div class="p-3 bg-white rounded-3 border text-center shadow-sm h-100">
+                    <div class="badge bg-light text-dark rounded-pill mb-1" style="font-size: 0.7rem;">${ordinal} PLACE</div>
+                    <div class="fw-bold small text-truncate" title="${player.name}">${player.name}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    return html.trim();
 };
 
 const renderRounds = (roundsData) => {
@@ -1556,6 +1769,47 @@ const checkForJudgeRotations = (rounds, bindings) => {
 };
 
 const playNotificationSound = () => {
+    if (notificationAudio) {
+        notificationAudio.currentTime = 0;
+        const playPromise = notificationAudio.play();
+        if (playPromise && typeof playPromise.then === 'function') {
+            playPromise.catch(() => {
+                if (!notificationAudioUnlocked) {
+                    console.warn('Notification audio blocked until user interacts with the page.');
+                } else {
+                    playFallbackTone();
+                }
+            });
+        }
+    } else {
+        playFallbackTone();
+    }
+};
+
+const initializeNotificationAudio = () => {
+    notificationAudio = new Audio('assets/sounds/notification.wav');
+    notificationAudio.preload = 'auto';
+    notificationAudio.volume = 0.5;
+
+    const unlockHandler = () => {
+        if (!notificationAudio) return;
+        notificationAudio.play().then(() => {
+            notificationAudio.pause();
+            notificationAudio.currentTime = 0;
+            notificationAudioUnlocked = true;
+        }).catch(() => {
+            // Ignore errors during unlock attempt
+        }).finally(() => {
+            document.removeEventListener('click', unlockHandler);
+            document.removeEventListener('keydown', unlockHandler);
+        });
+    };
+
+    document.addEventListener('click', unlockHandler, { once: true });
+    document.addEventListener('keydown', unlockHandler, { once: true });
+};
+
+const playFallbackTone = () => {
     try {
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioCtx.createOscillator();
@@ -1574,11 +1828,67 @@ const playNotificationSound = () => {
         oscillator.start();
         oscillator.stop(audioCtx.currentTime + 0.5);
     } catch (e) {
-        console.warn('Audio notification failed:', e);
+        console.warn('Fallback audio notification failed:', e);
     }
 };
 
-// Scroll to player's assigned match
+// Check for player match assignments and show notification
+const checkPlayerMatchAssignment = () => {
+    if (!currentUser || !currentTournamentId) return;
+
+    // Find matches where current user is assigned as player1 or player2
+    const playerMatches = allRounds.flatMap(round => 
+        round.matches.filter(match => 
+            (match.player1_id === currentUser.id || match.player2_id === currentUser.id) &&
+            match.judge_id && 
+            match.stadium_id &&
+            match.status !== 'completed'
+        )
+    );
+
+    if (playerMatches.length > 0) {
+        const match = playerMatches[0]; // Get first assigned match
+        const opponent = match.player1_id === currentUser.id ? match.player2_name : match.player1_name;
+        const matchKey = `${match.id}-${match.judge_id}-${match.stadium_id}`;
+        
+        // Only notify if we haven't notified about this specific assignment
+        if (!lastAssignmentKeys.has(matchKey)) {
+            showMatchAssignmentModal(match, opponent);
+            playNotificationSound();
+            lastAssignmentKeys.add(matchKey);
+        }
+    }
+};
+
+// Show match assignment modal
+const showMatchAssignmentModal = (match, opponentName) => {
+    const modal = document.getElementById('matchAssignmentModal');
+    const opponentEl = document.getElementById('opponentName');
+    const matchDetailsEl = document.getElementById('matchDetails');
+    const judgeNameDisplayEl = document.getElementById('judgeNameDisplay');
+    const stadiumNumberEl = document.getElementById('stadiumNumber');
+
+    if (modal && opponentEl && matchDetailsEl) {
+        opponentEl.textContent = opponentName || 'Unknown';
+        const roundLabel = Number.isFinite(parseInt(match.round_number, 10)) ? `Round ${match.round_number}` : 'Round --';
+        const matchLabel = Number.isFinite(parseInt(match.match_number, 10)) ? `Match ${match.match_number}` : 'Match --';
+        matchDetailsEl.textContent = `${roundLabel}, ${matchLabel}`;
+
+        // Update the new display elements
+        if (judgeNameDisplayEl) {
+            judgeNameDisplayEl.textContent = match.judge_name || 'Assigned';
+        }
+        if (stadiumNumberEl) {
+            // Extract stadium number from name or use the ID
+            const stadiumNumRaw = match.stadium_name ? match.stadium_name.replace(/[^0-9]/g, '') : '';
+            const stadiumNum = stadiumNumRaw || match.stadium_id || '';
+            stadiumNumberEl.textContent = stadiumNum ? `#${stadiumNum}` : '#?';
+        }
+
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+    }
+};
 const scrollToPlayerMatch = () => {
     if (!currentUser) return;
 

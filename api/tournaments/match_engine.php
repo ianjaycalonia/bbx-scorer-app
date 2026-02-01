@@ -50,9 +50,7 @@ class MatchEngine
             return ['success' => true, 'assignments' => [], 'message' => 'Swiss round in progress - judge assignments locked'];
         }
 
-        if ($this->isFirstRound()) {
-            return ['success' => true, 'assignments' => [], 'message' => 'First round - judge assignments locked'];
-        }
+        // Removed first round lock - judges can now be assigned immediately
 
         $this->resetCycleState();
 
@@ -819,14 +817,7 @@ class MatchEngine
                 WHERE tm.tournament_id = ? 
                 AND tm.status IN ('scheduled', 'blocked')
                 AND tm.player2_id IS NOT NULL -- Exclude Byes
-                AND (tr.status = 'active' OR (t.current_stage = 2 AND tr.stage = 2 AND tr.round_number = (
-                    SELECT MIN(tr2.round_number) 
-                    FROM tournament_matches tm2 
-                    JOIN tournament_rounds tr2 ON tm2.round_id = tr2.id 
-                    WHERE tm2.tournament_id = tm.tournament_id 
-                    AND tm2.status IN ('scheduled', 'blocked')
-                    AND tr2.stage = 2
-                )))
+                AND tr.status = 'active'
                 AND NOT EXISTS (SELECT 1 FROM match_assignments ma WHERE ma.match_id = tm.id)
                 -- 1.5 Players cannot be in two matches at once
                 AND NOT EXISTS (
@@ -1186,46 +1177,53 @@ class MatchEngine
             return $matches;
         }
 
-        $finalRound = $this->getMaxRoundNumber(2);
-        if ($finalRound === 0) {
-            return $matches;
-        }
-
+        $finalRoundByStage = [];
         $consolations = [];
-        $others = [];
         $finals = [];
+        $others = [];
 
         foreach ($matches as $match) {
             $stage = isset($match['stage']) ? (int) $match['stage'] : null;
             $roundNumber = isset($match['round_number']) ? (int) $match['round_number'] : null;
             $matchNumber = isset($match['match_number']) ? (int) $match['match_number'] : null;
 
-            if ($stage === 2 && $roundNumber === $finalRound) {
-                // In final round, prioritize by importance (finals first, then consolation in order)
-                if ($matchNumber !== null && $matchNumber < 90) {
-                    // Finals (1, 2, etc.) - play first
-                    $finals[] = $match;
-                } else {
-                    // Consolation matches - play after finals, sorted by descending importance
+            if ($stage === null || $roundNumber === null || $roundNumber <= 0) {
+                $others[] = $match;
+                continue;
+            }
+
+            if (!array_key_exists($stage, $finalRoundByStage)) {
+                $finalRoundByStage[$stage] = $this->getMaxRoundNumber($stage);
+            }
+
+            $finalRound = $finalRoundByStage[$stage] ?? 0;
+            if ($finalRound > 0 && $roundNumber === $finalRound) {
+                if ($matchNumber !== null && $matchNumber >= 90) {
                     $consolations[] = $match;
+                } else {
+                    $finals[] = $match;
                 }
             } else {
                 $others[] = $match;
             }
         }
 
-        // Sort finals by match number (ascending)
-        usort($finals, function ($a, $b) {
-            return ($a['match_number'] ?? 0) <=> ($b['match_number'] ?? 0);
-        });
-
-        // Sort consolation by descending importance (lower match number = higher importance)
+        // Consolation matches (>= 90) should be played before everything else in the final round.
         usort($consolations, function ($a, $b) {
             return ($b['match_number'] ?? 0) <=> ($a['match_number'] ?? 0);
         });
 
-        // Return in correct order: finals first, then consolation, then other matches
-        return array_merge($finals, $consolations, $others);
+        // Finals (< 90) only become eligible once every consolation match is finished.
+        usort($finals, function ($a, $b) {
+            return ($a['match_number'] ?? 0) <=> ($b['match_number'] ?? 0);
+        });
+
+        if (!empty($consolations)) {
+            // As long as a consolation is pending, hide finals from the playable pool entirely.
+            return array_merge($consolations, $others);
+        }
+
+        return array_merge($finals, $others);
     }
 
     private function blockMatch($matchId, $reason)

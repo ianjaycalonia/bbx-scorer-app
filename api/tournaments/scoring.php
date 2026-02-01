@@ -81,12 +81,6 @@ class ScoringService
             }
         }
 
-        if (!$isJudge && !$isCreator && !$isOrganizer) {
-            $judgeId = $matchInfo['judge_id'] ?? 'NULL';
-            $creatorId = $matchInfo['created_by'] ?? 'NULL';
-            throw new Exception("Unauthorized. You are not the judge or organizer. (Caller: $callerId, Judge: $judgeId, Creator: $creatorId)");
-        }
-
         // Auto-determine winner
         $winnerId = null;
         $loserId = null;
@@ -100,6 +94,50 @@ class ScoringService
 
         $this->conn->begin_transaction();
         try {
+            // Re-check authorization inside transaction to ensure consistent data view
+            $sql = "SELECT ma.judge_id, t.created_by 
+                    FROM tournament_matches tm
+                    JOIN tournaments t ON tm.tournament_id = t.id
+                    LEFT JOIN match_assignments ma ON tm.id = ma.match_id
+                    WHERE tm.id = ? FOR UPDATE";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("i", $matchId);
+            $stmt->execute();
+            $currentMatchInfo = $stmt->get_result()->fetch_assoc();
+
+            // Re-verify authorization with fresh data from within transaction
+            $isJudge = ($callerId == $currentMatchInfo['judge_id']);
+            $isCreator = ($callerId == $currentMatchInfo['created_by']);
+            $isOrganizer = false;
+
+            if (!$isCreator && !$isJudge) {
+                $sql = "SELECT role FROM tournament_roles WHERE tournament_id = ? AND user_id = ? LIMIT 1";
+                $roleStmt = $this->conn->prepare($sql);
+                $roleStmt->bind_param("ii", $matchInfo['tournament_id'], $callerId);
+                $roleStmt->execute();
+                $roleRow = $roleStmt->get_result()->fetch_assoc();
+                if ($roleRow && isset($roleRow['role'])) {
+                    $roles = explode(',', $roleRow['role']);
+                    foreach ($roles as $role) {
+                        if (trim($role) === 'organizer') {
+                            $isOrganizer = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!$isJudge && ($isCreator || $isOrganizer)) {
+                if (!empty($currentMatchInfo['judge_id'])) {
+                    throw new Exception("Cannot override an assigned judge. Please unassign the judge first.");
+                }
+            }
+
+            if (!$isJudge && !$isCreator && !$isOrganizer) {
+                $judgeId = $currentMatchInfo['judge_id'] ?? 'NULL';
+                $creatorId = $currentMatchInfo['created_by'] ?? 'NULL';
+                throw new Exception("Unauthorized. You are not the judge or organizer. (Caller: $callerId, Judge: $judgeId, Creator: $creatorId)");
+            }
             $roundId = $matchInfo['round_id'];
 
             // 1. Update match

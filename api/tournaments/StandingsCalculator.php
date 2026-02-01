@@ -142,15 +142,16 @@ class StandingsCalculator {
             // Calculate combined strength metric: (OMPA × 2) + (Opponent Win Rate × 5)
             $oppWinRate = ($oppTotalMatches > 0) ? $oppWins / $oppTotalMatches : 0;
             $s['strength_metric'] = round(($s['ompa'] * 2) + ($oppWinRate * 5), 2);
+            $s['point_diff'] = (int)$s['pf'] - (int)$s['pa'];
         }
 
         // New Sorting Logic: 
         // 1. Points (Wins)
         // 2. Bey Points (Skill)
-        // 3. Strength Metric (OMPA × 2 + Opponent Win Rate × 5)
-        // 4. FQI (Aggressiveness)
-        // 5. Head-to-Head (Not fully implemented here, complex for multi-way ties)
-        // 6. Seed
+        // 3. FQI (Aggressiveness)
+        // 4. Points Differential (PF - PA)
+        // 5. Buchholz (strength of schedule - hidden)
+        // 6. Seed (fallback)
         $standings = array_values($stats);
         usort($standings, function($a, $b) {
             // 1. Match Points
@@ -159,13 +160,18 @@ class StandingsCalculator {
             // 2. Bey Points
             if ($b['bey_points'] != $a['bey_points']) return $b['bey_points'] <=> $a['bey_points'];
             
-            // 3. Strength Metric (OMPA × 2 + Opponent Win Rate × 5)
-            if ($b['strength_metric'] != $a['strength_metric']) return $b['strength_metric'] <=> $a['strength_metric'];
-            
-            // 4. FQI
+            // 3. FQI
             if ($b['fqi'] != $a['fqi']) return $b['fqi'] <=> $a['fqi'];
             
-            // 5. Fallback: Seed (Ascending)
+            // 4. Points Differential
+            $aDiff = $a['point_diff'] ?? 0;
+            $bDiff = $b['point_diff'] ?? 0;
+            if ($bDiff != $aDiff) return $bDiff <=> $aDiff;
+
+            // 5. Buchholz (higher is better)
+            if (($b['buchholz'] ?? 0) != ($a['buchholz'] ?? 0)) return ($b['buchholz'] ?? 0) <=> ($a['buchholz'] ?? 0);
+
+            // 6. Fallback: Seed (Ascending)
             return ($a['seed'] ?? 999) <=> ($b['seed'] ?? 999);
         });
 
