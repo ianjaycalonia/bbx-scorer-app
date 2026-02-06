@@ -184,10 +184,40 @@
                     </div>
                 </div>
 
+                <!-- Ongoing Tournaments -->
+                <div class="card border-0 shadow-sm mb-4 d-none" id="ongoingSection">
+                    <div
+                        class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-center">
+                        <h4 class="h5 mb-0 fw-bold"><i class="bi bi-play-circle text-success me-2"></i>Ongoing</h4>
+                        <span class="badge bg-success opacity-75" id="ongoingCount">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="ongoingTournaments" class="list-group list-group-flush gap-2">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upcoming Tournaments -->
+                <div class="card border-0 shadow-sm mb-4 d-none" id="upcomingSection">
+                    <div
+                        class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-center">
+                        <h4 class="h5 mb-0 fw-bold"><i class="bi bi-calendar-event text-primary me-2"></i>Upcoming</h4>
+                        <span class="badge bg-primary opacity-75" id="upcomingCount">0</span>
+                    </div>
+                    <div class="card-body">
+                        <div id="upcomingTournaments" class="list-group list-group-flush gap-2">
+                            <!-- Populated via JS -->
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Recent Tournaments -->
                 <div class="card border-0 shadow-sm">
-                    <div class="card-header bg-transparent border-0 pb-0">
-                        <h4 class="h5 mb-0 fw-bold">Recent Tournaments</h4>
+                    <div
+                        class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-center">
+                        <h4 class="h5 mb-0 fw-bold"><i class="bi bi-clock-history text-muted me-2"></i>Recent
+                            Tournaments</h4>
                     </div>
                     <div class="card-body">
                         <div id="recentTournaments" class="list-group list-group-flush gap-2">

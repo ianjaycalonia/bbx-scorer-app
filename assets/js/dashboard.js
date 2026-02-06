@@ -35,6 +35,7 @@
                 // Ensure session storage is in sync
                 sessionStorage.setItem('user', JSON.stringify(currentUser));
                 updateUI();
+                loadTournaments();
             } else {
                 console.error('Authentication failed:', response.message);
                 window.location.href = 'index.html';
@@ -43,6 +44,88 @@
             console.error('Authentication error:', err);
             window.location.href = 'index.html';
         }
+    }
+
+    // Load tournaments from API
+    async function loadTournaments() {
+        try {
+            const response = await api.getTournaments();
+
+            if (response.success) {
+                displayTournaments(response.tournaments || []);
+            } else {
+                console.error('Failed to load tournaments:', response.message);
+                displayTournaments([]);
+            }
+        } catch (err) {
+            console.error('Error loading tournaments:', err);
+            displayTournaments([]);
+        }
+    }
+
+    // Display tournaments categorized by status
+    function displayTournaments(tournaments) {
+        const ongoingList = document.getElementById('ongoingTournaments');
+        const upcomingList = document.getElementById('upcomingTournaments');
+        const recentList = document.getElementById('recentTournaments');
+
+        const ongoingSection = document.getElementById('ongoingSection');
+        const upcomingSection = document.getElementById('upcomingSection');
+
+        if (!recentList) return;
+
+        // Group tournaments
+        const ongoing = tournaments.filter(t => t.status === 'in_progress' || t.status === 'registration');
+        const upcoming = tournaments.filter(t => t.status === 'upcoming');
+        const recent = tournaments.filter(t => t.status === 'completed');
+
+        // Update counts and visibility
+        if (ongoingSection) {
+            ongoingSection.classList.toggle('d-none', ongoing.length === 0);
+            document.getElementById('ongoingCount').textContent = ongoing.length;
+        }
+        if (upcomingSection) {
+            upcomingSection.classList.toggle('d-none', upcoming.length === 0);
+            document.getElementById('upcomingCount').textContent = upcoming.length;
+        }
+
+        // Render sections
+        renderTournamentList(ongoingList, ongoing, 'No ongoing tournaments');
+        renderTournamentList(upcomingList, upcoming, 'No upcoming tournaments');
+        renderTournamentList(recentList, recent, 'No recent tournaments');
+    }
+
+    // Helper to render a list of tournaments
+    function renderTournamentList(container, tournaments, emptyMessage) {
+        if (!container) return;
+
+        if (tournaments.length === 0) {
+            container.innerHTML = `<div class="text-center py-4 text-muted small">${emptyMessage}</div>`;
+            return;
+        }
+
+        container.innerHTML = tournaments.map(t => `
+            <a href="tournament-detail.html?id=${t.id}" class="list-group-item list-group-item-action border-0 rounded-3 mb-2 shadow-sm p-3">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="mb-1 fw-bold">${t.name}</h6>
+                        <div class="d-flex gap-3 text-muted x-small">
+                            <span><i class="bi bi-calendar3 me-1"></i>${formatDate(t.date)}</span>
+                            <span><i class="bi bi-geo-alt me-1"></i>${t.location || 'TBD'}</span>
+                            <span><i class="bi bi-people me-1"></i>${t.participant_count || 0}</span>
+                        </div>
+                    </div>
+                    <i class="bi bi-chevron-right text-muted"></i>
+                </div>
+            </a>
+        `).join('');
+    }
+
+    // Format date helper
+    function formatDate(dateString) {
+        if (!dateString) return 'TBD';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     }
 
     // Update UI with user data
