@@ -25,7 +25,7 @@ class ScoringService
         }
     }
 
-    public function recordResult($matchId, $p1score = 0, $p2score = 0, $finishes = [])
+    public function recordResult($matchId, $p1score = 0, $p2score = 0, $finishes = [], $p1Id = null, $p2Id = null)
     {
         $p1score = (int) $p1score;
         $p2score = (int) $p2score;
@@ -52,6 +52,34 @@ class ScoringService
 
         if (!$matchInfo)
             throw new Exception("Match not found.");
+
+        // Build robust mapping from submitted Slot/ID to Database Column and PlayerID
+        // This handles cases where p1Id/p2Id are provided (swapped or not)
+        $idToColumn = [
+            $matchInfo['player1_id'] => 'player1_score',
+            $matchInfo['player2_id'] => 'player2_score'
+        ];
+
+        // Final scores to update in DB
+        $finalP1Score = 0;
+        $finalP2Score = 0;
+
+        if ($p1Id !== null && $p2Id !== null) {
+            // Map submitted p1score to the column associated with p1Id
+            if (isset($idToColumn[$p1Id])) {
+                if ($idToColumn[$p1Id] === 'player1_score') {
+                    $finalP1Score = $p1score;
+                    $finalP2Score = $p2score;
+                } else {
+                    $finalP1Score = $p2score;
+                    $finalP2Score = $p1score;
+                }
+            }
+        } else {
+            // Fallback for calls that don't pass IDs (though we should encourage IDs)
+            $finalP1Score = $p1score;
+            $finalP2Score = $p2score;
+        }
 
         // Authorization: judge, creator, or organizer
         $isJudge = ($callerId == $matchInfo['judge_id']);
@@ -84,10 +112,10 @@ class ScoringService
         // Auto-determine winner
         $winnerId = null;
         $loserId = null;
-        if ($p1score > $p2score) {
+        if ($finalP1Score > $finalP2Score) {
             $winnerId = $matchInfo['player1_id'];
             $loserId = $matchInfo['player2_id'];
-        } else if ($p2score > $p1score) {
+        } else if ($finalP2Score > $finalP1Score) {
             $winnerId = $matchInfo['player2_id'];
             $loserId = $matchInfo['player1_id'];
         }
@@ -95,7 +123,8 @@ class ScoringService
         $this->conn->begin_transaction();
         try {
             // Re-check authorization inside transaction to ensure consistent data view
-            $sql = "SELECT ma.judge_id, t.created_by 
+            // Fetch judge_id from matches table (permanent) and match_assignments (active)
+            $sql = "SELECT tm.judge_id as permanent_judge_id, ma.judge_id as active_judge_id, t.created_by 
                     FROM tournament_matches tm
                     JOIN tournaments t ON tm.tournament_id = t.id
                     LEFT JOIN match_assignments ma ON tm.id = ma.match_id
@@ -106,7 +135,7 @@ class ScoringService
             $currentMatchInfo = $stmt->get_result()->fetch_assoc();
 
             // Re-verify authorization with fresh data from within transaction
-            $isJudge = ($callerId == $currentMatchInfo['judge_id']);
+            $isJudge = ($callerId == $currentMatchInfo['permanent_judge_id'] || $callerId == $currentMatchInfo['active_judge_id']);
             $isCreator = ($callerId == $currentMatchInfo['created_by']);
             $isOrganizer = false;
 
@@ -143,7 +172,7 @@ class ScoringService
             // 1. Update match
             $sql = "UPDATE tournament_matches SET winner_id = ?, player1_score = ?, player2_score = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?";
             $stmt = $this->conn->prepare($sql);
-            $stmt->bind_param("siii", $winnerId, $p1score, $p2score, $matchId);
+            $stmt->bind_param("siii", $winnerId, $finalP1Score, $finalP2Score, $matchId);
             $stmt->execute();
 
             // 2. Replace detailed finishes for this match
@@ -156,7 +185,35 @@ class ScoringService
                 $sqlFinish = "INSERT INTO match_finishes (match_id, player_id, finish_type, points) VALUES (?, ?, ?, ?)";
                 $stmtFinish = $this->conn->prepare($sqlFinish);
                 foreach ($finishes as $f) {
-                    $playerId = ($f['player'] === 'p1') ? $matchInfo['player1_id'] : $matchInfo['player2_id'];
+                    $submittedPlayer = $f['player'] ?? null;
+                    if (!$submittedPlayer)
+                        continue;
+
+                    // Improved PlayerId Resolution:
+                    // 1. If it's literally 'p1' or 'p2', map to corresponding ID (using context IDs if provided)
+                    // 2. Otherwise treatment it as the actual Player ID if it matches either player in the match
+
+                    $playerId = null;
+                    $submittedPlayerStr = (string) $submittedPlayer;
+
+                    if ($submittedPlayerStr === 'p1') {
+                        $playerId = $p1Id ?? $matchInfo['player1_id'];
+                    } elseif ($submittedPlayerStr === 'p2') {
+                        $playerId = $p2Id ?? $matchInfo['player2_id'];
+                    } elseif ($submittedPlayerStr !== 'null' && !empty($submittedPlayerStr)) {
+                        // Trust the submitted ID if it belongs to this match
+                        if ($submittedPlayerStr === $matchInfo['player1_id'] || $submittedPlayerStr === $matchInfo['player2_id']) {
+                            $playerId = $submittedPlayerStr;
+                        } else {
+                            // Last resort fallback for safety
+                            $playerId = ($submittedPlayerStr === 'p1') ? $matchInfo['player1_id'] : $matchInfo['player2_id'];
+                        }
+                    }
+
+                    // Strict check: if no valid player ID or it's still 'null', SKIP this finish to avoid FK error
+                    if (!$playerId || $playerId === 'null')
+                        continue;
+
                     $finishType = $f['type'];
                     $pts = (int) $f['points'];
                     $stmtFinish->bind_param("issi", $matchId, $playerId, $finishType, $pts);

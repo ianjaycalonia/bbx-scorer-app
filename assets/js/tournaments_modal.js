@@ -386,6 +386,7 @@ const saveTournament = async () => {
         // Prepare tournament data
         const tournamentData = {
             name: name,
+            slug: document.getElementById('tournamentSlug')?.value?.trim() || '',
             tournament_type: type,
             date: date || null,
             location: location || null,

@@ -50,10 +50,16 @@ try {
                     }
                 }
 
+                // Generate unique tournament code
+                $tournamentCode = $this->generateUniqueTournamentCode();
+
+                // Validate and sanitize slug if provided
+                $slug = $this->validateSlug($tournamentData['slug'] ?? null);
+
                 $sql = "INSERT INTO tournaments (
                     name, date, location, tournament_type, visibility, number_of_stadiums, max_participants, 
-                    status, rules, created_by, swiss_rounds, top_cut, rank_to
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?, ?)";
+                    status, rules, created_by, swiss_rounds, top_cut, rank_to, tournament_code, tournament_slug
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'upcoming', ?, ?, ?, ?, ?, ?, ?)";
 
                 $stmt = $this->conn->prepare($sql);
                 if (!$stmt) {
@@ -74,7 +80,7 @@ try {
                 $rank_to = $tournamentData['rank_to'] ?? 5;
 
                 $stmt->bind_param(
-                    "sssssiissiii",
+                    "sssssiissiiiss",
                     $name,
                     $date,
                     $location,
@@ -86,7 +92,9 @@ try {
                     $userId,
                     $swiss_rounds,
                     $top_cut,
-                    $rank_to
+                    $rank_to,
+                    $tournamentCode,
+                    $slug
                 );
 
                 if (!$stmt->execute()) {
@@ -104,7 +112,13 @@ try {
                 if (!$roleStmt->execute())
                     throw new Exception('Failed to assign organizer role: ' . $roleStmt->error);
 
-                return ['success' => true, 'message' => 'Tournament created successfully', 'tournament_id' => $tournamentId];
+                return [
+                    'success' => true,
+                    'message' => 'Tournament created successfully',
+                    'tournament_id' => $tournamentId,
+                    'tournament_code' => $tournamentCode,
+                    'tournament_slug' => $slug
+                ];
             } catch (Exception $e) {
                 error_log('Error in createTournament: ' . $e->getMessage());
                 return ['success' => false, 'message' => 'Error creating tournament: ' . $e->getMessage()];
@@ -431,6 +445,71 @@ try {
             } catch (Exception $e) {
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
+        }
+
+        /**
+         * Generate unique 8-character tournament code
+         */
+        private function generateUniqueTournamentCode()
+        {
+            $maxAttempts = 10;
+            for ($i = 0; $i < $maxAttempts; $i++) {
+                // Generate 8-character alphanumeric code (uppercase)
+                $code = strtoupper(substr(str_shuffle('ABCDEFGHJKLMNPQRSTUVWXYZ23456789'), 0, 8));
+
+                // Check if code already exists
+                $sql = "SELECT id FROM tournaments WHERE tournament_code = ?";
+                $stmt = $this->conn->prepare($sql);
+                $stmt->bind_param("s", $code);
+                $stmt->execute();
+
+                if ($stmt->get_result()->num_rows === 0) {
+                    return $code;
+                }
+            }
+
+            // Fallback to timestamp-based code if collision persists
+            return strtoupper(substr(md5(microtime()), 0, 8));
+        }
+
+        /**
+         * Validate and sanitize tournament slug
+         */
+        private function validateSlug($slug)
+        {
+            if (empty($slug)) {
+                return null;
+            }
+
+            // Convert to lowercase and replace spaces/underscores with hyphens
+            $slug = strtolower(trim($slug));
+            $slug = preg_replace('/[\s_]+/', '-', $slug);
+
+            // Remove invalid characters (only allow alphanumeric and hyphens)
+            $slug = preg_replace('/[^a-z0-9-]/', '', $slug);
+
+            // Remove consecutive hyphens
+            $slug = preg_replace('/-+/', '-', $slug);
+
+            // Remove leading/trailing hyphens
+            $slug = trim($slug, '-');
+
+            // Validate format
+            if (!preg_match('/^[a-z0-9-]+$/', $slug) || strlen($slug) < 3) {
+                return null; // Invalid slug, return null
+            }
+
+            // Check uniqueness
+            $sql = "SELECT id FROM tournaments WHERE tournament_slug = ?";
+            $stmt = $this->conn->prepare($sql);
+            $stmt->bind_param("s", $slug);
+            $stmt->execute();
+
+            if ($stmt->get_result()->num_rows > 0) {
+                return null; // Slug already exists
+            }
+
+            return $slug;
         }
 
         public function updateTournamentStatus($tournamentId, $status)

@@ -291,7 +291,7 @@ const renderStandings = (standings) => {
     list.innerHTML = standings.map((s, index) => {
         const rank = index + 1;
         const isAdvanced = showAdvancedBadges && rank <= topCut;
-        const fqiPercent = ((s.fqi ?? 0) * 100).toFixed(0);
+        const fqiValue = s.fqi ?? 0;
         const pointDiff = s.point_diff ?? ((s.pf ?? 0) - (s.pa ?? 0));
         const diffLabel = pointDiff > 0 ? `+${pointDiff}` : pointDiff;
         const diffClass = pointDiff > 0 ? 'text-success' : (pointDiff < 0 ? 'text-danger' : 'text-muted');
@@ -315,7 +315,7 @@ const renderStandings = (standings) => {
                 <span class="fw-bold text-primary">${s.bey_points}</span>
             </td>
             <td class="text-center">
-                <span class="fw-bold text-info">${fqiPercent}%</span>
+                <span class="fw-bold text-info">${fqiValue}</span>
             </td>
             <td class="text-center">
                 <span class="fw-bold ${diffClass}">${diffLabel}</span>
@@ -1343,17 +1343,17 @@ const promptMatchScore = async (matchId, p1Name, p2Name, currentP1 = 0, currentP
 
         // Reconstruct finishes from match data
         if (match.finishes) {
-            // Combine player1 and player2 finishes into the moves array format
+            // Use actual Player IDs for finishes instead of generic slot names
             if (Array.isArray(match.finishes.player1)) {
                 existingData.finishes.push(...match.finishes.player1.map(f => ({
-                    player: 'p1',
+                    player: match.player1.id,
                     type: f.type,
                     points: f.points
                 })));
             }
             if (Array.isArray(match.finishes.player2)) {
                 existingData.finishes.push(...match.finishes.player2.map(f => ({
-                    player: 'p2',
+                    player: match.player2.id,
                     type: f.type,
                     points: f.points
                 })));
@@ -1394,10 +1394,10 @@ const promptMatchScore = async (matchId, p1Name, p2Name, currentP1 = 0, currentP
         if (match.player2?.seed) displayName2 = `(#${match.player2.seed}) ${p2Name}`;
     }
 
-    const scores = await showScoringModal(displayName1, displayName2, existingData);
+    const scores = await showScoringModal(displayName1, displayName2, match.player1.id, match.player2.id, existingData);
     if (!scores) return; // Cancelled
 
-    recordMatchResult(matchId, scores.p1, scores.p2, scores.finishes);
+    recordMatchResult(matchId, scores.p1, scores.p2, scores.finishes, scores.p1Id, scores.p2Id);
 }
 
 const handleManualOverride = async (matchId, p1Name, p2Name) => {
@@ -1413,7 +1413,7 @@ const handleManualOverride = async (matchId, p1Name, p2Name) => {
     promptMatchScore(matchId, p1Name, p2Name);
 };
 
-const recordMatchResult = async (matchId, p1Score, p2Score, finishes = []) => {
+const recordMatchResult = async (matchId, p1Score, p2Score, finishes = [], p1Id = null, p2Id = null) => {
     // Sanitize finishes but preserve all occurrences (no deduplication)
     const sanitizedFinishes = Array.isArray(finishes) ? finishes.filter(finish => {
         return finish && finish.player && finish.type;
@@ -1423,17 +1423,23 @@ const recordMatchResult = async (matchId, p1Score, p2Score, finishes = []) => {
         points: Number.isFinite(Number(finish.points)) ? Number(finish.points) : null
     })) : [];
 
+    const bodyParams = {
+        tournament_id: currentTournamentId,
+        match_id: matchId,
+        p1_score: p1Score,
+        p2_score: p2Score,
+        finishes: JSON.stringify(sanitizedFinishes)
+    };
+
+    // Only add IDs if they are valid truthy values and not the string "null"
+    if (p1Id && p1Id !== 'null') bodyParams.p1_id = p1Id;
+    if (p2Id && p2Id !== 'null') bodyParams.p2_id = p2Id;
+
     try {
         const response = await fetch('api/tournaments/rounds.php?action=recordResult', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                tournament_id: currentTournamentId,
-                match_id: matchId,
-                p1_score: p1Score,
-                p2_score: p2Score,
-                finishes: JSON.stringify(sanitizedFinishes)
-            })
+            body: new URLSearchParams(bodyParams)
         });
         const result = await response.json();
         if (result.success) {
@@ -1837,10 +1843,10 @@ const checkPlayerMatchAssignment = () => {
     if (!currentUser || !currentTournamentId) return;
 
     // Find matches where current user is assigned as player1 or player2
-    const playerMatches = allRounds.flatMap(round => 
-        round.matches.filter(match => 
+    const playerMatches = allRounds.flatMap(round =>
+        round.matches.filter(match =>
             (match.player1_id === currentUser.id || match.player2_id === currentUser.id) &&
-            match.judge_id && 
+            match.judge_id &&
             match.stadium_id &&
             match.status !== 'completed'
         )
@@ -1850,7 +1856,7 @@ const checkPlayerMatchAssignment = () => {
         const match = playerMatches[0]; // Get first assigned match
         const opponent = match.player1_id === currentUser.id ? match.player2_name : match.player1_name;
         const matchKey = `${match.id}-${match.judge_id}-${match.stadium_id}`;
-        
+
         // Only notify if we haven't notified about this specific assignment
         if (!lastAssignmentKeys.has(matchKey)) {
             showMatchAssignmentModal(match, opponent);

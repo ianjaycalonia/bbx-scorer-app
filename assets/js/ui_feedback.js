@@ -340,7 +340,7 @@
         `);
     }
 
-    function showScoringModal(p1Name, p2Name, existingData = null) {
+    function showScoringModal(p1Name, p2Name, p1Id, p2Id, existingData = null) {
         return new Promise((resolve) => {
             const config = existingData?.config || {};
             const minPoints = config.minPoints || 4;
@@ -363,10 +363,12 @@
             const closeBtn = modalEl.querySelector('.btn-close');
 
             // State
+            let currentP1Id = p1Id;
+            let currentP2Id = p2Id;
             let p1Score = 0;
             let p2Score = 0;
-            let p1Warnings = 0;  // Track warnings for player 1
-            let p2Warnings = 0;  // Track warnings for player 2
+            let p1Warnings = 0;
+            let p2Warnings = 0;
             let history = []; // Stack of snapshots for undo
             let moves = [];   // Linear list of actual scoring events
 
@@ -468,7 +470,9 @@
                     badge.textContent = label;
                     badge.title = `${move.type} (+${move.points})`; // Tooltip keeps points info
 
-                    if (move.player === 'p1') {
+                    // Robust attribution: check actual ID or legacy slot string
+                    const isP1 = String(move.player) === String(currentP1Id) || move.player === 'p1';
+                    if (isP1) {
                         p1HistoryEl.appendChild(badge);
                     } else {
                         p2HistoryEl.appendChild(badge);
@@ -477,6 +481,11 @@
             };
 
             const switchPlayers = () => {
+                // Swap IDs
+                const tempId = currentP1Id;
+                currentP1Id = currentP2Id;
+                currentP2Id = tempId;
+
                 // Swap names
                 const tempName = p1NameEl.textContent;
                 p1NameEl.textContent = p2NameEl.textContent;
@@ -492,15 +501,11 @@
                 p1Warnings = p2Warnings;
                 p2Warnings = tempWarnings;
 
-                // Swap moves (update player references)
-                moves = moves.map(move => ({
-                    ...move,
-                    player: move.player === 'p1' ? 'p2' : 'p1'
-                }));
-
                 // Update history logs to reflect swapped names and warnings
                 history = history.map(state => ({
                     ...state,
+                    p1: state.p2,
+                    p2: state.p1,
                     p1Warnings: state.p2Warnings || 0,
                     p2Warnings: state.p1Warnings || 0,
                     log: state.log.replace(p1NameEl.textContent, 'TEMP_NAME').replace(p2NameEl.textContent, p1NameEl.textContent).replace('TEMP_NAME', p2NameEl.textContent)
@@ -510,54 +515,59 @@
                 logEl.textContent = 'Players switched';
             };
 
-            const addPoints = (player, points, type) => {
+            const addPoints = (playerSlot, points, type) => {
+                const targetPlayerId = (playerSlot === 'p1') ? currentP1Id : currentP2Id;
+                const otherPlayerId = (playerSlot === 'p1') ? currentP2Id : currentP1Id;
+                const targetName = (playerSlot === 'p1') ? p1NameEl.textContent : p2NameEl.textContent;
+                const otherName = (playerSlot === 'p1') ? p2NameEl.textContent : p1NameEl.textContent;
+
                 // Special handling for Fault type
                 if (type === 'Fault') {
-                    if (player === 'p1') {
+                    if (playerSlot === 'p1') {
                         p1Warnings++;
                         if (p1Warnings >= 2) {
                             // Award 1 fault point to OPPONENT and reset warnings
                             history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings, log: logEl.textContent });
-                            moves.push({ player: 'p2', points: 1, type: 'Fault' }); // Opponent gets the point
+                            moves.push({ player: otherPlayerId, points: 1, type: 'Fault' }); // Opponent gets the point
                             p2Score += 1; // OPPONENT (p2) gets the point
                             p1Warnings = 0;
                             p2Warnings = 0; // RESET ALL WARNINGS when a point is awarded
-                            logEl.textContent = `${p1Name} fault → ${p2Name}: +1 pt`;
+                            logEl.textContent = `${targetName} fault → ${otherName}: +1 pt`;
                         } else {
                             // Just record warning, no points
                             history.push({ p1: p1Score, p2: p2Score, p1Warnings: p1Warnings - 1, p2Warnings, log: logEl.textContent });
-                            logEl.textContent = `${p1Name}: Warning ${p1Warnings}/2`;
+                            logEl.textContent = `${targetName}: Warning ${p1Warnings}/2`;
                         }
                     } else {
                         p2Warnings++;
                         if (p2Warnings >= 2) {
                             history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings, log: logEl.textContent });
-                            moves.push({ player: 'p1', points: 1, type: 'Fault' }); // Opponent gets the point
+                            moves.push({ player: otherPlayerId, points: 1, type: 'Fault' }); // Opponent gets the point
                             p1Score += 1; // OPPONENT (p1) gets the point
                             p1Warnings = 0; // RESET ALL WARNINGS when a point is awarded
                             p2Warnings = 0;
-                            logEl.textContent = `${p2Name} fault → ${p1Name}: +1 pt`;
+                            logEl.textContent = `${targetName} fault → ${otherName}: +1 pt`;
                         } else {
                             history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings: p2Warnings - 1, log: logEl.textContent });
-                            logEl.textContent = `${p2Name}: Warning ${p2Warnings}/2`;
+                            logEl.textContent = `${targetName}: Warning ${p2Warnings}/2`;
                         }
                     }
                 } else {
                     // Normal scoring for non-Fault types
                     // RESET ALL WARNINGS when any valid finish is clicked
                     history.push({ p1: p1Score, p2: p2Score, p1Warnings, p2Warnings, log: logEl.textContent });
-                    moves.push({ player, points, type });
+                    moves.push({ player: targetPlayerId, points, type });
 
                     // Reset warnings for both players
                     p1Warnings = 0;
                     p2Warnings = 0;
 
-                    if (player === 'p1') {
+                    if (playerSlot === 'p1') {
                         p1Score += points;
-                        logEl.textContent = `${p1Name}: ${points} pt (${type})`;
+                        logEl.textContent = `${targetName}: ${points} pt (${type})`;
                     } else {
                         p2Score += points;
-                        logEl.textContent = `${p2Name}: ${points} pt (${type})`;
+                        logEl.textContent = `${targetName}: ${points} pt (${type})`;
                     }
                 }
                 updateDisplay();
@@ -589,7 +599,19 @@
                 }
 
                 modal.hide();
-                resolve({ p1: p1Score, p2: p2Score, finishes: moves });
+                // Return result mapped by original player ID roles
+                // Result contains scores for the actual IDs currently in those slots
+                // Santize IDs before resolving to ensure "null" strings from legacy data don't propagate
+                const finalP1Id = (currentP1Id && currentP1Id !== 'null') ? currentP1Id : null;
+                const finalP2Id = (currentP2Id && currentP2Id !== 'null') ? currentP2Id : null;
+
+                resolve({
+                    p1: p1Score,
+                    p2: p2Score,
+                    p1Id: finalP1Id,
+                    p2Id: finalP2Id,
+                    finishes: moves
+                });
             };
 
             const cleanup = () => {
@@ -602,10 +624,10 @@
 
             const onScoreClick = (e) => {
                 const btn = e.currentTarget;
-                const player = btn.getAttribute('data-player');
+                const playerSlot = btn.getAttribute('data-player'); // 'p1' or 'p2' (UI slot)
                 const points = parseInt(btn.getAttribute('data-points'));
                 const type = btn.getAttribute('data-type');
-                addPoints(player, points, type);
+                addPoints(playerSlot, points, type);
             };
 
             const onHidden = () => {
@@ -613,16 +635,14 @@
             };
 
             // Event Listeners
+
             scoreBtns.forEach(btn => btn.addEventListener('click', onScoreClick));
             undoBtn.addEventListener('click', undo);
             submitBtn.addEventListener('click', submit);
             switchBtn.addEventListener('click', switchPlayers);
 
-            // Handle dismissal via backdrop/X
-            modalEl.addEventListener('hidden.bs.modal', () => {
-                // If not resolved yet (i.e. cancelled)
-                // We can't easily check promise state here, but we can assume null if not submitted
-            });
+            // Handle dismissal via backdrop/X - IMPORTANT: Attach the onHidden handler
+            modalEl.addEventListener('hidden.bs.modal', onHidden, { once: true });
 
             modal.show();
         });

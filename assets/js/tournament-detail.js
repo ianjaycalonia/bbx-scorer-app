@@ -157,6 +157,9 @@ async function loadTournamentDetails(tournamentId) {
             } else {
                 displayPeople([]);
             }
+
+            // Load check-in data if applicable
+            await loadCheckInData();
         } else {
             showError(result.message || 'Failed to load tournament details');
         }
@@ -394,27 +397,22 @@ function displayTournamentDetails(data) {
 
     const isEditable = ['upcoming', 'registration'].includes(tournament.status);
 
-    if (addPeopleBtn) {
-        if (isEditable) {
-            showElement(addPeopleBtn);
-        } else {
-            hideElement(addPeopleBtn);
+    // Toggle Add/Shuffle buttons in both roster views
+    const commonButtons = [
+        { id: 'addPeopleBtn', show: isEditable },
+        { id: 'addPeopleBtnSimple', show: isEditable },
+        { id: 'shuffleSeedsBtn', show: isEditable },
+        { id: 'shuffleSeedsBtnSimple', show: isEditable },
+        { id: 'topCutHelperText', show: isEditable, display: 'block' }
+    ];
+
+    commonButtons.forEach(btn => {
+        const el = document.getElementById(btn.id);
+        if (el) {
+            if (btn.show) showElement(el, btn.display || '');
+            else hideElement(el);
         }
-    }
-    if (shuffleSeedsBtn) {
-        if (isEditable) {
-            showElement(shuffleSeedsBtn);
-        } else {
-            hideElement(shuffleSeedsBtn);
-        }
-    }
-    if (topCutHelperText) {
-        if (isEditable) {
-            showElement(topCutHelperText, 'block');
-        } else {
-            hideElement(topCutHelperText);
-        }
-    }
+    });
 
     if (topCutInput) {
         topCutInput.disabled = !isEditable;
@@ -487,12 +485,16 @@ function updateTopCutField(playerCount) {
 
 // Display people with roles
 function displayPeople(people) {
-    const peopleList = document.getElementById('peopleList');
-    const shuffleIndicator = document.getElementById('seedShuffleIndicator');
+    const tabPeopleList = document.getElementById('tabPeopleList');
+    const simplePeopleList = document.getElementById('simplePeopleList');
+    const tabShuffleIndicator = document.getElementById('seedShuffleIndicator');
+    const simpleShuffleIndicator = document.getElementById('seedShuffleIndicatorSimple');
 
     if (people.length === 0) {
-        hideElement(document.getElementById('playerCountSummary'));
-        peopleList.innerHTML = `
+        hideElement(document.getElementById('tabPlayerCountSummary'));
+        hideElement(document.getElementById('simplePlayerCountSummary'));
+
+        const emptyHtml = `
             <div class="col-12">
                 <div class="empty-people text-center py-5">
                     <i class="bi bi-people display-4 text-muted mb-3"></i>
@@ -501,41 +503,59 @@ function displayPeople(people) {
                 </div>
             </div>
         `;
+
+        if (tabPeopleList) tabPeopleList.innerHTML = emptyHtml;
+        if (simplePeopleList) simplePeopleList.innerHTML = emptyHtml;
         return;
     }
 
     // Update player count summary
-    // Count anyone who has player/both role OR if they are the creator we need to be careful.
-    // Actually, if they are the creator but NOT in the list as player/both, they shouldn't count as a player.
-    const playerCount = people.filter(p => {
-        const roles = p.role.split(',');
+    const totalPlayers = people.filter(p => {
+        const roles = p.role.split(',').map(r => r.trim());
         return roles.includes('player') || roles.includes('both');
     }).length;
-    const summaryContainer = document.getElementById('playerCountSummary');
-    const countSpan = document.getElementById('totalPlayersCount');
-    if (summaryContainer && countSpan) {
-        countSpan.textContent = playerCount;
-        showElement(summaryContainer, 'flex');
+
+    const checkedInPlayers = people.filter(p => {
+        const roles = p.role.split(',').map(r => r.trim());
+        return (roles.includes('player') || roles.includes('both')) && p.registration_status === 'CHECKED_IN';
+    }).length;
+
+    // Update Tab Summary
+    const tabSummary = document.getElementById('tabPlayerCountSummary');
+    const tabCount = document.getElementById('tabTotalPlayersCount');
+    if (tabSummary && tabCount) {
+        tabCount.textContent = `${checkedInPlayers} / ${totalPlayers} Checked In`;
+        showElement(tabSummary, 'flex');
     }
 
-    if (shuffleIndicator) {
-        shuffleIndicator.style.display = 'none';
-        shuffleIndicator.classList.remove('is-visible');
-        shuffleIndicator.classList.remove('recent');
-        shuffleIndicator.innerHTML = '';
+    // Update Simple Summary
+    const simpleSummary = document.getElementById('simplePlayerCountSummary');
+    const simpleCount = document.getElementById('simpleTotalPlayersCount');
+    if (simpleSummary && simpleCount) {
+        simpleCount.textContent = `${checkedInPlayers} / ${totalPlayers} Checked In`;
+        showElement(simpleSummary, 'flex');
     }
+
+    // Reset shuffle indicators
+    [tabShuffleIndicator, simpleShuffleIndicator].forEach(indicator => {
+        if (indicator) {
+            indicator.style.display = 'none';
+            indicator.classList.remove('is-visible');
+            indicator.classList.remove('recent');
+            indicator.innerHTML = '';
+        }
+    });
 
     // Update top cut field based on player count
-    updateTopCutField(playerCount);
+    updateTopCutField(totalPlayers);
 
     const locked = isTournamentEditingLocked();
 
-    peopleList.innerHTML = people.map(person => {
+    const participantsHtml = people.map(person => {
         const isCreator = currentTournament && person.user_id === currentTournament.created_by;
         const roles = person.role.split(',');
         const isPlayer = roles.includes('player') || roles.includes('both');
         const isJudge = roles.includes('judge') || roles.includes('both');
-        const isOrganizer = roles.includes('organizer');
         const isBoth = (roles.includes('player') && roles.includes('judge')) || roles.includes('both');
         const isObserver = roles.includes('observer');
 
@@ -548,12 +568,19 @@ function displayPeople(people) {
             ? `<span class="seed-badge ${hasSeed ? '' : 'seed-badge-pending'}">${hasSeed ? `#${seedNumber}` : 'Unseeded'}</span>`
             : '';
 
-        let roleBadges = '';
-        if (isCreator) {
-            // Creator is always organizer implicitly, but we can check if we want explicit
-            roleBadges += '<span class="role-badge organizer">Organizer</span>';
+        let statusBadge = '';
+        if (isPlayer) {
+            if (person.registration_status === 'CHECKED_IN') {
+                statusBadge = '<span class="badge bg-success rounded-pill ms-1" style="font-size: 0.65rem;"><i class="bi bi-check-circle me-1"></i>Checked In</span>';
+            } else if (person.registration_status === 'REGISTERED') {
+                statusBadge = '<span class="badge bg-warning text-dark rounded-pill ms-1" style="font-size: 0.65rem;"><i class="bi bi-clock me-1"></i>Wait</span>';
+            }
         }
 
+        let roleBadges = '';
+        if (isCreator) {
+            roleBadges += '<span class="role-badge organizer">Organizer</span>';
+        }
         if (isPlayer) {
             roleBadges += '<span class="role-badge player">Player</span>';
         }
@@ -583,8 +610,9 @@ function displayPeople(people) {
                     </div>
                     <div class="person-info">
                         <div class="person-name-row">
-                            <div class="person-name">${displayName}</div>
+                            <div class="person-name text-truncate" title="${displayName}">${displayName}</div>
                             ${seedBadge}
+                            ${statusBadge}
                         </div>
                         <div class="person-date">Added ${formatDate(person.assigned_at)}</div>
                         <div class="person-roles">
@@ -596,6 +624,9 @@ function displayPeople(people) {
             </div>
         `;
     }).join('');
+
+    if (tabPeopleList) tabPeopleList.innerHTML = participantsHtml;
+    if (simplePeopleList) simplePeopleList.innerHTML = participantsHtml;
 }
 // Display participants (deprecated - use displayPeople instead)
 function displayParticipants(participants) {
@@ -2083,3 +2114,230 @@ function displayPodium(podium, swissKing = null) {
 }
 
 window.finishTournament = finishTournament;
+
+// ===== CHECK-IN MANAGEMENT FUNCTIONS =====
+
+// Load check-in data and show tabs if needed
+async function loadCheckInData() {
+    if (!currentTournament) return;
+
+    // Only show check-in tab for organizers before tournament starts
+    const isUpcoming = ['upcoming', 'registration'].includes(currentTournament.status);
+    const tabsSection = document.getElementById('organizerTabsSection');
+    const simplePeopleSection = document.getElementById('simplePeopleSection');
+
+    if (isUpcoming && currentUser) {
+        const isOrganizer = currentUser.id === currentTournament.created_by;
+
+        if (isOrganizer) {
+            if (tabsSection) tabsSection.classList.remove('is-hidden');
+            if (simplePeopleSection) simplePeopleSection.classList.add('is-hidden');
+
+            // Load registration data
+            await loadPendingCheckIns();
+            await loadCheckedInPlayers();
+        } else {
+            if (tabsSection) tabsSection.classList.add('is-hidden');
+            if (simplePeopleSection) simplePeopleSection.classList.remove('is-hidden');
+        }
+    } else {
+        if (tabsSection) tabsSection.classList.add('is-hidden');
+        if (simplePeopleSection) simplePeopleSection.classList.remove('is-hidden');
+    }
+}
+
+// Load players awaiting check-in
+async function loadPendingCheckIns() {
+    try {
+        const response = await fetch(`api/tournaments/checkin.php?action=getRegistered&tournament_id=${currentTournament.id}`);
+        const result = await response.json();
+
+        const pendingList = document.getElementById('pendingCheckInList');
+        const pendingBadge = document.getElementById('pendingCheckInBadge');
+        const bulkBtn = document.getElementById('bulkCheckInBtn');
+
+        if (result.success && result.players && result.players.length > 0) {
+            if (pendingBadge) pendingBadge.textContent = result.players.length;
+            if (bulkBtn) bulkBtn.disabled = false;
+
+            if (pendingList) {
+                pendingList.innerHTML = result.players.map(player => `
+                    <div class="d-flex align-items-center justify-content-between p-3 border rounded bg-white">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="player-avatar bg-warning text-white" style="width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                ${(player.display_name || player.blader_name || '?').charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <div class="fw-bold">${player.display_name || player.blader_name || 'Unknown'}</div>
+                                <small class="text-muted">
+                                    <i class="bi bi-clock me-1"></i> Registered ${formatDate(player.registered_at || new Date())}
+                                </small>
+                            </div>
+                        </div>
+                        <button class="btn btn-success btn-sm" onclick="checkInPlayer('${player.user_id}', '${escapeHtml(player.display_name || player.blader_name || 'Unknown')}')">
+                            <i class="bi bi-check-circle me-1"></i> Check In
+                        </button>
+                    </div>
+                `).join('');
+            }
+        } else {
+            if (pendingBadge) pendingBadge.textContent = '0';
+            if (bulkBtn) bulkBtn.disabled = true;
+            if (pendingList) {
+                pendingList.innerHTML = `
+                    <div class="text-center text-muted py-3">
+                        <i class="bi bi-inbox display-6 opacity-25"></i>
+                        <p class="small mb-0 mt-2">No pending check-ins</p>
+                    </div>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading pending check-ins:', error);
+    }
+}
+
+// Load checked-in players
+async function loadCheckedInPlayers() {
+    try {
+        const response = await fetch(`api/tournaments/checkin.php?action=getCheckedIn&tournament_id=${currentTournament.id}`);
+        const result = await response.json();
+
+        const checkedInList = document.getElementById('checkedInList');
+
+        if (result.success && result.players && result.players.length > 0) {
+            if (checkedInList) {
+                checkedInList.innerHTML = result.players.map(player => `
+                    <div class="d-flex align-items-center justify-content-between p-3 border rounded bg-light">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="player-avatar bg-success text-white" style="width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                                ${(player.display_name || player.blader_name || '?').charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <div class="fw-bold">${player.display_name || player.blader_name || 'Unknown'}</div>
+                                <small class="text-success">
+                                    <i class="bi bi-check-circle-fill me-1"></i> Checked in
+                                </small>
+                            </div>
+                        </div>
+                        <span class="badge bg-success rounded-pill">Ready</span>
+                    </div>
+                `).join('');
+            }
+        } else {
+            if (checkedInList) {
+                checkedInList.innerHTML = `
+                    <div class="text-center text-muted py-3">
+                        <i class="bi bi-people display-6 opacity-25"></i>
+                        <p class="small mb-0 mt-2">No players checked in yet</p>
+                    </div>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading checked-in players:', error);
+    }
+}
+
+// Check in a single player
+window.checkInPlayer = async function (playerId, playerName) {
+    try {
+        const response = await fetch('api/tournaments/checkin.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                action: 'checkIn',
+                tournament_id: currentTournament.id,
+                player_id: playerId
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(`${playerName} checked in successfully!`, { variant: 'success' });
+            await loadPendingCheckIns();
+            await loadCheckedInPlayers();
+
+            // Reload people list to update participant count
+            const peopleResponse = await fetch(`api/tournaments/roles.php?action=getPeople&tournament_id=${currentTournament.id}`);
+            const peopleResult = await peopleResponse.json();
+            if (peopleResult.success) {
+                displayPeople(peopleResult.people || []);
+            }
+        } else {
+            showToast(result.message || 'Failed to check in player', { variant: 'danger' });
+        }
+    } catch (error) {
+        console.error('Error checking in player:', error);
+        showToast('Failed to check in player', { variant: 'danger' });
+    }
+};
+
+// Bulk check-in all pending players
+window.bulkCheckIn = async function () {
+    try {
+        // Get all pending players first
+        const response = await fetch(`api/tournaments/checkin.php?action=getRegistered&tournament_id=${currentTournament.id}`);
+        const result = await response.json();
+
+        if (!result.success || !result.players || result.players.length === 0) {
+            showToast('No players to check in', { variant: 'info' });
+            return;
+        }
+
+        const confirmed = await showConfirmation({
+            title: 'Bulk Check-In',
+            message: `Check in all ${result.players.length} registered player(s)?`,
+            confirmText: 'Check In All',
+            confirmVariant: 'success'
+        });
+
+        if (!confirmed) return;
+
+        const playerIds = result.players.map(p => p.user_id);
+
+        const checkInResponse = await fetch('api/tournaments/checkin.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                action: 'bulkCheckIn',
+                tournament_id: currentTournament.id,
+                player_ids: JSON.stringify(playerIds)
+            })
+        });
+
+        const checkInResult = await checkInResponse.json();
+
+        if (checkInResult.success) {
+            const successCount = checkInResult.checked_in || playerIds.length;
+            showToast(`Successfully checked in ${successCount} player(s)!`, { variant: 'success' });
+            await loadPendingCheckIns();
+            await loadCheckedInPlayers();
+
+            // Reload people list
+            const peopleResponse = await fetch(`api/tournaments/roles.php?action=getPeople&tournament_id=${currentTournament.id}`);
+            const peopleResult = await peopleResponse.json();
+            if (peopleResult.success) {
+                displayPeople(peopleResult.people || []);
+            }
+        } else {
+            showToast(checkInResult.message || 'Failed to check in players', { variant: 'danger' });
+        }
+    } catch (error) {
+        console.error('Error bulk checking in:', error);
+        showToast('Failed to check in players', { variant: 'danger' });
+    }
+};
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}

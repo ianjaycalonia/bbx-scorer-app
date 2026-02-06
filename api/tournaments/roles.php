@@ -68,7 +68,7 @@ try {
                     $isNewRolePlayer = ($newRole === 'player' || $newRole === 'both');
 
                     // Check if person already has a role in this tournament
-                    $sql = "SELECT id, role, seed FROM tournament_roles WHERE tournament_id = ? AND user_id = ?";
+                    $sql = "SELECT id, role, seed, registration_status FROM tournament_roles WHERE tournament_id = ? AND user_id = ?";
                     $stmt = $this->conn->prepare($sql);
                     $stmt->bind_param("ss", $tournamentId, $userId);
                     $stmt->execute();
@@ -112,9 +112,12 @@ try {
                             $seedToSet = $nextSeed++;
                         }
 
-                        $sql = "UPDATE tournament_roles SET role = ?, seed = ? WHERE tournament_id = ? AND user_id = ?";
+                        // TO-assisted additions: auto-check-in players
+                        $registrationStatus = $isNewRolePlayer ? 'CHECKED_IN' : ($existing['registration_status'] ?? 'NONE');
+
+                        $sql = "UPDATE tournament_roles SET role = ?, seed = ?, registration_status = ? WHERE tournament_id = ? AND user_id = ?";
                         $stmt = $this->conn->prepare($sql);
-                        $stmt->bind_param("siss", $roleString, $seedToSet, $tournamentId, $userId);
+                        $stmt->bind_param("sisss", $roleString, $seedToSet, $registrationStatus, $tournamentId, $userId);
                         $updateSuccess = $stmt->execute();
 
                         $pName = $person['display_name'] ?? $userId;
@@ -132,9 +135,12 @@ try {
                             $seedToSet = $nextSeed++;
                         }
 
-                        $sql = "INSERT INTO tournament_roles (tournament_id, user_id, role, seed) VALUES (?, ?, ?, ?)";
+                        // TO-assisted additions: auto-check-in players
+                        $registrationStatus = $isNewRolePlayer ? 'CHECKED_IN' : 'NONE';
+
+                        $sql = "INSERT INTO tournament_roles (tournament_id, user_id, role, seed, registration_status) VALUES (?, ?, ?, ?, ?)";
                         $stmt = $this->conn->prepare($sql);
-                        $stmt->bind_param("sssi", $tournamentId, $userId, $roleString, $seedToSet);
+                        $stmt->bind_param("sssis", $tournamentId, $userId, $roleString, $seedToSet, $registrationStatus);
                         $insertSuccess = $stmt->execute();
 
                         $pName = $person['display_name'] ?? $userId;
@@ -166,7 +172,7 @@ try {
         public function getTournamentPeople($tournamentId)
         {
             try {
-                $sql = "SELECT tr.id, tr.user_id, tr.role, tr.seed, tr.assigned_at, u.email, u.display_name, u.blader_name 
+                $sql = "SELECT tr.id, tr.user_id, tr.role, tr.seed, tr.registration_status, tr.assigned_at, u.email, u.display_name, u.blader_name 
                         FROM tournament_roles tr 
                         JOIN users u ON tr.user_id = u.id 
                         WHERE tr.tournament_id = ? 
@@ -310,8 +316,13 @@ try {
                 return ['success' => true, 'message' => 'Seeds shuffled successfully'];
 
             } catch (Exception $e) {
-                if ($this->conn && $this->conn->in_transaction)
-                    $this->conn->rollback();
+                if ($this->conn) {
+                    try {
+                        $this->conn->rollback();
+                    } catch (Exception $rollbackException) {
+                        // Ignore rollback errors
+                    }
+                }
                 return ['success' => false, 'message' => 'Database error: ' . $e->getMessage()];
             }
         }

@@ -181,7 +181,7 @@
                                             FQI
                                             <i class="bi bi-question-circle-fill text-muted ms-1 tooltip-icon"
                                                 data-bs-toggle="tooltip" data-bs-placement="top" data-bs-trigger="click"
-                                                title="Finish Quality Index: % of finishes that are Xtreme/Burst/Over"></i>
+                                                title="Finish Quality Index: Weighted sum of decisive finishes (Xtreme=3, Burst/Over=2)"></i>
                                         </th>
                                         <th class="text-center">
                                             Pts Δ
@@ -220,7 +220,8 @@
                         </div>
 
                         <div id="resultsContent" class="results-card d-none">
-                            <div class="p-4 bg-light rounded-4 border border-warning border-opacity-25 shadow-sm text-center">
+                            <div
+                                class="p-4 bg-light rounded-4 border border-warning border-opacity-25 shadow-sm text-center">
                                 <h3 class="h5 fw-bold mb-3 text-warning">
                                     <i class="bi bi-stars me-2"></i>Tournament Winners
                                 </h3>
@@ -237,13 +238,15 @@
                                             <div class="player-avatar bg-warning text-white mx-auto mb-2 podium-avatar-lg"
                                                 id="resultsPodium1stAvatar">?</div>
                                             <div class="fw-bold text-truncate" id="resultsPodium1stName">---</div>
-                                            <div class="badge bg-warning text-dark rounded-pill mt-1 badge-sm">CHAMPION</div>
+                                            <div class="badge bg-warning text-dark rounded-pill mt-1 badge-sm">CHAMPION
+                                            </div>
                                         </div>
                                         <div class="podium-item podium-item-sm">
                                             <div class="player-avatar bg-danger text-white mx-auto mb-2 podium-avatar-sm podium-avatar-bronze"
                                                 id="resultsPodium3rdAvatar">?</div>
                                             <div class="fw-bold small text-truncate" id="resultsPodium3rdName">---</div>
-                                            <div class="badge bg-danger rounded-pill mt-1 badge-xs badge-bronze">3rd</div>
+                                            <div class="badge bg-danger rounded-pill mt-1 badge-xs badge-bronze">3rd
+                                            </div>
                                         </div>
                                     </div>
                                     <div class="podium-divider"></div>
@@ -255,7 +258,8 @@
                                                     <i class="bi bi-crown"></i>
                                                 </div>
                                                 <div class="fw-bold text-truncate" id="resultsSwissKingName">---</div>
-                                                <div class="badge bg-warning text-dark rounded-pill mt-1 badge-sm">SWISS KING</div>
+                                                <div class="badge bg-warning text-dark rounded-pill mt-1 badge-sm">SWISS
+                                                    KING</div>
                                             </div>
                                         </div>
                                     </div>
@@ -276,14 +280,17 @@
     </div>
 
     <!-- Match Assignment Alert Modal -->
-    <div class="modal fade" id="matchAssignmentModal" tabindex="-1" aria-labelledby="matchAssignmentModalLabel" aria-hidden="true">
+    <div class="modal fade" id="matchAssignmentModal" tabindex="-1" aria-labelledby="matchAssignmentModalLabel"
+        aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content bg-gradient border-0 shadow-lg" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+            <div class="modal-content bg-gradient border-0 shadow-lg"
+                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                 <div class="modal-header border-0">
                     <h5 class="modal-title text-white" id="matchAssignmentModalLabel">
                         <i class="bi bi-bell-fill me-2"></i>YOU ARE NOW PLAYING!
                     </h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
                 </div>
                 <div class="modal-body text-white">
                     <div class="text-center mb-3">
@@ -291,7 +298,8 @@
                         <h4 class="fw-bold mb-3">PLEASE GO TO STADIUM <span id="stadiumNumber">#</span></h4>
                         <p class="mb-2">JUDGED BY: <span id="judgeNameDisplay" class="fw-bold">Loading...</span></p>
                         <div class="bg-white bg-opacity-20 rounded-3 p-3 mb-3">
-                            <div class="fw-bold fs-5 text-uppercase" id="opponentLabel">Opponent: <span id="opponentName">Loading...</span></div>
+                            <div class="fw-bold fs-5 text-uppercase" id="opponentLabel">Opponent: <span
+                                    id="opponentName">Loading...</span></div>
                             <div class="small" id="matchDetails">Loading...</div>
                         </div>
                     </div>

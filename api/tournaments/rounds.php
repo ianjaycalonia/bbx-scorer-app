@@ -113,11 +113,11 @@ class TournamentManager
     }
 
     // Records result and handles progression
-    public function recordResult($matchId, $p1score = 0, $p2score = 0)
+    public function recordResult($matchId, $p1score = 0, $p2score = 0, $p1Id = null, $p2Id = null)
     {
         $scoringService = new ScoringService(new Database(), $this->tournamentId);
         $finishes = isset($_POST['finishes']) ? json_decode($_POST['finishes'], true) : [];
-        $result = $scoringService->recordResult($matchId, $p1score, $p2score, $finishes);
+        $result = $scoringService->recordResult($matchId, $p1score, $p2score, $finishes, $p1Id, $p2Id);
 
         if ($result['success'] && isset($result['round_id'])) {
             $tournament = $this->getTournamentDetails();
@@ -228,13 +228,16 @@ class TournamentManager
 
     private function getPlayers()
     {
-        // Get all players
-        $sql = "SELECT user_id as id FROM tournament_roles WHERE tournament_id = ? AND (FIND_IN_SET('player', role) > 0)";
+        // Get all players with CHECKED_IN status
+        $sql = "SELECT user_id as id FROM tournament_roles 
+                WHERE tournament_id = ? 
+                AND (FIND_IN_SET('player', role) > 0)
+                AND registration_status = 'CHECKED_IN'";
         $stmt = $this->conn->prepare($sql);
         $stmt->bind_param("i", $this->tournamentId);
         $stmt->execute();
         $allPlayers = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        
+
         // Get all judges
         $sql = "SELECT user_id as id FROM tournament_roles WHERE tournament_id = ? AND (FIND_IN_SET('judge', role) > 0)";
         $stmt = $this->conn->prepare($sql);
@@ -242,7 +245,7 @@ class TournamentManager
         $stmt->execute();
         $allJudges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         $judgeIds = array_column($allJudges, 'id');
-        
+
         // Get available stadiums for this tournament
         $sql = "SELECT COUNT(*) as stadium_count FROM tournament_stadiums WHERE tournament_id = ?";
         $stmt = $this->conn->prepare($sql);
@@ -250,11 +253,11 @@ class TournamentManager
         $stmt->execute();
         $stadiumResult = $stmt->get_result()->fetch_assoc();
         $requiredJudges = (int) $stadiumResult['stadium_count'];
-        
+
         // Separate players into judges and non-judges
         $judgePlayers = [];
         $nonJudgePlayers = [];
-        
+
         foreach ($allPlayers as $player) {
             if (in_array($player['id'], $judgeIds)) {
                 $judgePlayers[] = $player;
@@ -262,20 +265,20 @@ class TournamentManager
                 $nonJudgePlayers[] = $player;
             }
         }
-        
+
         // Judge-first priority: Only include judges as players if we have enough non-judge players
         // and enough judges remain to cover all stadiums
         $availableJudges = count($judgePlayers);
         $nonJudgeCount = count($nonJudgePlayers);
-        
+
         // Calculate how many judges can play
         $maxJudgesCanPlay = max(0, $availableJudges - $requiredJudges);
-        
+
         // Only allow judges to play if:
         // 1. We have enough non-judge players to form matches
         // 2. We have enough judges left to cover all stadiums
         $judgesAllowedToPlay = ($nonJudgeCount >= 2) && ($availableJudges > $requiredJudges);
-        
+
         if ($judgesAllowedToPlay) {
             // Include some judges as players, but prioritize non-judges
             $judgesToInclude = min($maxJudgesCanPlay, count($judgePlayers));
@@ -285,7 +288,7 @@ class TournamentManager
             // Only include non-judge players
             $finalPlayers = $nonJudgePlayers;
         }
-        
+
         return array_values(array_filter($finalPlayers, function ($p) {
             return !empty($p['id']);
         }));
@@ -442,7 +445,16 @@ if (basename(__FILE__) == basename($_SERVER['SCRIPT_FILENAME'])) {
         case 'recordResult':
             $p1s = $_POST['p1_score'] ?? 0;
             $p2s = $_POST['p2_score'] ?? 0;
-            $response = $mgr->recordResult($_POST['match_id'], $p1s, $p2s);
+            $p1i = $_POST['p1_id'] ?? null;
+            $p2i = $_POST['p2_id'] ?? null;
+
+            // Clean up "null" strings from frontend URLSearchParams
+            if ($p1i === 'null')
+                $p1i = null;
+            if ($p2i === 'null')
+                $p2i = null;
+
+            $response = $mgr->recordResult($_POST['match_id'], $p1s, $p2s, $p1i, $p2i);
             break;
         case 'getState':
             // Reimplement getState or call a helper? 
@@ -541,8 +553,12 @@ if (basename(__FILE__) == basename($_SERVER['SCRIPT_FILENAME'])) {
                 foreach ($rData['matches'] as &$m) {
                     foreach ($finishesAll as $f) {
                         if ($f['match_id'] == $m['id']) {
-                            $type = ($f['player_id'] == $m['player1']['id']) ? 'player1' : 'player2';
-                            $m['finishes'][$type][] = ['type' => $f['finish_type'], 'points' => $f['points']];
+                            // Robust ID comparison using strcasecmp for UUIDs
+                            if ($m['player1']['id'] !== null && strcasecmp((string) $f['player_id'], (string) $m['player1']['id']) === 0) {
+                                $m['finishes']['player1'][] = ['type' => $f['finish_type'], 'points' => $f['points']];
+                            } elseif ($m['player2']['id'] !== null && strcasecmp((string) $f['player_id'], (string) $m['player2']['id']) === 0) {
+                                $m['finishes']['player2'][] = ['type' => $f['finish_type'], 'points' => $f['points']];
+                            }
                         }
                     }
                 }

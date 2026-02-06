@@ -17,6 +17,7 @@ DROP TABLE IF EXISTS `tournament_stadiums`;
 DROP TABLE IF EXISTS `tournament_roles`;
 DROP TABLE IF EXISTS `tournament_participants`;
 DROP TABLE IF EXISTS `tournament_judges`;
+DROP TABLE IF EXISTS `tournament_swiss_history`;
 DROP TABLE IF EXISTS `tournaments`;
 DROP TABLE IF EXISTS `user_profiles`;
 DROP TABLE IF EXISTS `users`;
@@ -70,6 +71,8 @@ CREATE TABLE `user_profiles` (
 -- Tournaments table
 CREATE TABLE `tournaments` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
+  `tournament_code` varchar(8) UNIQUE DEFAULT NULL,
+  `tournament_slug` varchar(100) UNIQUE DEFAULT NULL,
   `name` varchar(255) NOT NULL,
   `date` date DEFAULT NULL,
   `location` varchar(255) DEFAULT NULL,
@@ -90,6 +93,8 @@ CREATE TABLE `tournaments` (
   KEY `created_by` (`created_by`),
   KEY `idx_tournaments_status` (`status`),
   KEY `idx_tournaments_date` (`date`),
+  KEY `idx_tournament_code` (`tournament_code`),
+  KEY `idx_tournament_slug` (`tournament_slug`),
   CONSTRAINT `tournaments_ibfk_1` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
@@ -124,6 +129,7 @@ CREATE TABLE `tournament_roles` (
   `user_id` varchar(36) DEFAULT NULL,
   `role` varchar(50) NOT NULL,
   `status` enum('pending','accepted','declined') DEFAULT 'accepted',
+  `registration_status` enum('NONE','REGISTERED','CHECKED_IN','LOCKED') DEFAULT 'NONE',
   `seed` int(11) DEFAULT 0,
   `assigned_at` timestamp NOT NULL DEFAULT current_timestamp(),
   PRIMARY KEY (`id`),
@@ -131,6 +137,7 @@ CREATE TABLE `tournament_roles` (
   KEY `idx_tournament_roles_tournament` (`tournament_id`),
   KEY `idx_tournament_roles_user` (`user_id`),
   KEY `idx_tournament_roles_role` (`role`),
+  KEY `idx_registration_status` (`registration_status`),
   CONSTRAINT `tournament_roles_ibfk_1` FOREIGN KEY (`tournament_id`) REFERENCES `tournaments` (`id`) ON DELETE CASCADE,
   CONSTRAINT `tournament_roles_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
@@ -253,6 +260,19 @@ CREATE TABLE `tournament_judges` (
   CONSTRAINT `tournament_judges_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+-- Tournament Swiss History
+CREATE TABLE `tournament_swiss_history` (
+  `tournament_id` int(11) NOT NULL,
+  `round_number` int(11) NOT NULL,
+  `player_id` varchar(64) NOT NULL,
+  `wins` int(11) NOT NULL,
+  `losses` int(11) NOT NULL,
+  `points` float NOT NULL,
+  `bey_points` int(11) DEFAULT 0,
+  `strength_metric` decimal(8,2) DEFAULT 0.00,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`tournament_id`,`round_number`,`player_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Insert Beyblade users (password: beyblade123)
 INSERT INTO users (id, email, blader_name, display_name, password, created_at, updated_at) VALUES 
