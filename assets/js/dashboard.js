@@ -69,8 +69,8 @@
         const upcomingList = document.getElementById('upcomingTournaments');
         const recentList = document.getElementById('recentTournaments');
 
-        const ongoingSection = document.getElementById('ongoingSection');
-        const upcomingSection = document.getElementById('upcomingSection');
+        const ongoingBadge = document.getElementById('ongoingCount');
+        const upcomingBadge = document.getElementById('upcomingCount');
 
         if (!recentList) return;
 
@@ -79,14 +79,14 @@
         const upcoming = tournaments.filter(t => t.status === 'upcoming');
         const recent = tournaments.filter(t => t.status === 'completed');
 
-        // Update counts and visibility
-        if (ongoingSection) {
-            ongoingSection.classList.toggle('d-none', ongoing.length === 0);
-            document.getElementById('ongoingCount').textContent = ongoing.length;
+        // Update counts and badges
+        if (ongoingBadge) {
+            ongoingBadge.textContent = ongoing.length;
+            ongoingBadge.classList.toggle('d-none', ongoing.length === 0);
         }
-        if (upcomingSection) {
-            upcomingSection.classList.toggle('d-none', upcoming.length === 0);
-            document.getElementById('upcomingCount').textContent = upcoming.length;
+        if (upcomingBadge) {
+            upcomingBadge.textContent = upcoming.length;
+            upcomingBadge.classList.toggle('d-none', upcoming.length === 0);
         }
 
         // Render sections

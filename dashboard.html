@@ -184,46 +184,56 @@
                     </div>
                 </div>
 
-                <!-- Ongoing Tournaments -->
-                <div class="card border-0 shadow-sm mb-4 d-none" id="ongoingSection">
-                    <div
-                        class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-center">
-                        <h4 class="h5 mb-0 fw-bold"><i class="bi bi-play-circle text-success me-2"></i>Ongoing</h4>
-                        <span class="badge bg-success opacity-75" id="ongoingCount">0</span>
+                <!-- Tournaments Tabs -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-header bg-transparent border-0 pb-0 mt-2">
+                        <ul class="nav nav-pills custom-tabs mb-3 gap-2" id="tournamentTabs" role="tablist">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active position-relative" id="ongoing-tab" data-bs-toggle="pill"
+                                    data-bs-target="#ongoing-pane" type="button" role="tab">
+                                    <i class="bi bi-play-circle me-1"></i>Ongoing
+                                    <span class="badge bg-success ms-1 small d-none" id="ongoingCount">0</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link position-relative" id="upcoming-tab" data-bs-toggle="pill"
+                                    data-bs-target="#upcoming-pane" type="button" role="tab">
+                                    <i class="bi bi-calendar-event me-1"></i>Upcoming
+                                    <span class="badge bg-primary ms-1 small d-none" id="upcomingCount">0</span>
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link" id="recent-tab" data-bs-toggle="pill"
+                                    data-bs-target="#recent-pane" type="button" role="tab">
+                                    <i class="bi bi-clock-history me-1"></i>Recent
+                                </button>
+                            </li>
+                        </ul>
                     </div>
-                    <div class="card-body">
-                        <div id="ongoingTournaments" class="list-group list-group-flush gap-2">
-                            <!-- Populated via JS -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Upcoming Tournaments -->
-                <div class="card border-0 shadow-sm mb-4 d-none" id="upcomingSection">
-                    <div
-                        class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-center">
-                        <h4 class="h5 mb-0 fw-bold"><i class="bi bi-calendar-event text-primary me-2"></i>Upcoming</h4>
-                        <span class="badge bg-primary opacity-75" id="upcomingCount">0</span>
-                    </div>
-                    <div class="card-body">
-                        <div id="upcomingTournaments" class="list-group list-group-flush gap-2">
-                            <!-- Populated via JS -->
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Recent Tournaments -->
-                <div class="card border-0 shadow-sm">
-                    <div
-                        class="card-header bg-transparent border-0 pb-0 d-flex justify-content-between align-items-center">
-                        <h4 class="h5 mb-0 fw-bold"><i class="bi bi-clock-history text-muted me-2"></i>Recent
-                            Tournaments</h4>
-                    </div>
-                    <div class="card-body">
-                        <div id="recentTournaments" class="list-group list-group-flush gap-2">
-                            <div class="text-center py-5 text-muted">
-                                <div class="spinner-border spinner-border-sm text-primary mb-2"></div>
-                                <p class="small mb-0">Loading tournaments...</p>
+                    <div class="card-body pt-0">
+                        <div class="tab-content" id="tournamentTabsContent">
+                            <!-- Ongoing Pane -->
+                            <div class="tab-pane fade show active" id="ongoing-pane" role="tabpanel"
+                                aria-labelledby="ongoing-tab">
+                                <div id="ongoingTournaments" class="list-group list-group-flush gap-2">
+                                    <div class="text-center py-4 text-muted small">No ongoing tournaments</div>
+                                </div>
+                            </div>
+                            <!-- Upcoming Pane -->
+                            <div class="tab-pane fade" id="upcoming-pane" role="tabpanel"
+                                aria-labelledby="upcoming-tab">
+                                <div id="upcomingTournaments" class="list-group list-group-flush gap-2">
+                                    <div class="text-center py-4 text-muted small">No upcoming tournaments</div>
+                                </div>
+                            </div>
+                            <!-- Recent Pane -->
+                            <div class="tab-pane fade" id="recent-pane" role="tabpanel" aria-labelledby="recent-tab">
+                                <div id="recentTournaments" class="list-group list-group-flush gap-2">
+                                    <div class="text-center py-5 text-muted">
+                                        <div class="spinner-border spinner-border-sm text-primary mb-2"></div>
+                                        <p class="small mb-0">Loading tournaments...</p>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
