@@ -712,11 +712,101 @@
     display: block;
 }
 
+/* Fixed player row layout - names stay level */
+.player-row {
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
+    min-height: 3.5rem !important;
+}
+
+/* Player name always at top, never moves */
+.player-row .player-topline {
+    flex-shrink: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    min-height: 1.5rem !important;
+    margin-bottom: 0.25rem !important;
+}
+
+/* Fixed-height container for finish badges - 2 rows max */
+.player-row .player-finishes {
+    flex-shrink: 0 !important;
+    max-height: 3.2rem !important;
+    min-height: 1.6rem !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    align-items: flex-start !important;
+    gap: 0.15rem !important;
+    margin-top: auto !important;
+}
+
+/* Finish badge list - grid layout for 2 rows */
+.player-row .finish-badge-list {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 0.15rem !important;
+    max-height: 3.2rem !important;
+    overflow: hidden !important;
+    align-items: center !important;
+}
+
+/* Individual finish badges - scale down when more are added */
+.player-row .finish-badge-list .badge,
+.player-row .player-finishes .badge {
+    font-size: 0.65rem !important;
+    padding: 0.2rem 0.4rem !important;
+    height: 1.4rem !important;
+    line-height: 1 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+}
+
+/* When there are many badges (4+), make them smaller */
+.player-row .finish-badge-list:has(> .badge:nth-child(4)) .badge,
+.player-row .player-finishes:has(> .badge:nth-child(4)) .badge {
+    font-size: 0.6rem !important;
+    padding: 0.15rem 0.3rem !important;
+    height: 1.2rem !important;
+}
+
+/* When there are even more badges (6+), make them even smaller */
+.player-row .finish-badge-list:has(> .badge:nth-child(6)) .badge,
+.player-row .player-finishes:has(> .badge:nth-child(6)) .badge {
+    font-size: 0.55rem !important;
+    padding: 0.1rem 0.25rem !important;
+    height: 1.1rem !important;
+}
+
+/* Ensure player names stay at consistent position */
+.player-row .player-name {
+    flex-shrink: 0 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
 /* Status messages section */
 .match-card>div:nth-last-child(2),
 .match-card>div:nth-last-child(3) {
     flex-shrink: 0;
     min-height: 1.75rem;
+}
+
+/* Finish Button Base Styles - Reduced height */
+.finish-btn {
+    height: 2.25rem !important;
+    padding: 0.375rem 0.75rem !important;
+    font-size: 0.875rem !important;
+    line-height: 1.2 !important;
+    border-radius: 0.375rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 
 /* Live Battle Scoreboard Modal Styles */
@@ -903,6 +993,52 @@
 .finish-btn.btn-outline-white:focus-visible {
     outline: 2px solid #ffffff;
     outline-offset: 2px;
+}
+
+/* Live Battle Scoreboard history badges - allow to grow, shrink badges as more rows are added */
+#p1-history,
+#p2-history {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    gap: 0.2rem !important;
+    /* Allow history to grow, names stay fixed because header row is top-aligned */
+    min-height: 1.4rem !important;
+}
+
+#p1-history .badge,
+#p2-history .badge {
+    font-size: 0.7rem !important;
+    padding: 0.2rem 0.5rem !important;
+    line-height: 1 !important;
+    border-radius: 999px !important;
+    white-space: nowrap !important;
+}
+
+/* When a moderate number of history badges exist (5+), shrink them a bit */
+#p1-history:has(.badge:nth-child(5)) .badge,
+#p2-history:has(.badge:nth-child(5)) .badge {
+    font-size: 0.65rem !important;
+    padding: 0.18rem 0.45rem !important;
+}
+
+/* When many history badges are present (8+), shrink them further */
+#p1-history:has(.badge:nth-child(8)) .badge,
+#p2-history:has(.badge:nth-child(8)) .badge {
+    font-size: 0.6rem !important;
+    padding: 0.15rem 0.4rem !important;
+}
+
+/* When a lot of badges exist (12+), make them extra compact */
+#p1-history:has(.badge:nth-child(12)) .badge,
+#p2-history:has(.badge:nth-child(12)) .badge {
+    font-size: 0.55rem !important;
+    padding: 0.1rem 0.35rem !important;
+}
+
+/* Keep player name/score containers level in Live Battle Scoreboard */
+.modal-body .card.bg-light.border-0 .row.align-items-center {
+    align-items: flex-start !important;
 }
 
 /* Hide the blue pill match log element */
@@ -1135,6 +1271,126 @@
 
 .floating-match-btn:active {
     transform: translateY(0);
+}
+
+/* Mobile-friendly Live Battle Scoreboard modal */
+@media (max-width: 767.98px) {
+    .modal-dialog-centered {
+        margin: 0.5rem !important;
+        max-width: calc(95vw - 1rem) !important;
+        max-height: calc(90vh - 2rem) !important;
+    }
+
+    .modal-content {
+        border-radius: 0.5rem !important;
+        margin: 0.25rem !important;
+    }
+
+    .modal-header {
+        padding: 0.75rem 1rem !important;
+    }
+
+    .modal-title {
+        font-size: 1.1rem !important;
+        line-height: 1.2 !important;
+    }
+
+    .modal-body {
+        padding: 1rem !important;
+        max-height: calc(60vh - 4rem) !important;
+        overflow-y: auto !important;
+    }
+
+    .modal-body .display-1 {
+        font-size: 1.5rem !important;
+        margin-bottom: 0.75rem !important;
+    }
+
+    .modal-body h4 {
+        font-size: 1rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+
+    .modal-body p {
+        font-size: 0.875rem !important;
+        margin-bottom: 0.5rem !important;
+        line-height: 1.4 !important;
+    }
+
+    .modal-body .fw-bold {
+        font-size: 0.875rem !important;
+    }
+
+    .modal-footer {
+        padding: 0.75rem 1rem !important;
+    }
+
+    .modal-footer .btn {
+        font-size: 0.875rem !important;
+        padding: 0.5rem 1rem !important;
+        min-height: 44px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+}
+
+/* Extra small screen adjustments */
+@media (max-width: 480px) {
+    .modal-dialog-centered {
+        margin: 0.25rem !important;
+        max-width: calc(98vw - 0.5rem) !important;
+        max-height: calc(85vh - 1rem) !important;
+    }
+
+    .modal-content {
+        border-radius: 0.375rem !important;
+        margin: 0.125rem !important;
+    }
+
+    .modal-header {
+        padding: 0.5rem 0.75rem !important;
+    }
+
+    .modal-title {
+        font-size: 1rem !important;
+        line-height: 1.1 !important;
+    }
+
+    .modal-body {
+        padding: 0.75rem !important;
+        max-height: calc(70vh - 2rem) !important;
+    }
+
+    .modal-body .display-1 {
+        font-size: 1.25rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+
+    .modal-body h4 {
+        font-size: 0.875rem !important;
+        margin-bottom: 0.375rem !important;
+    }
+
+    .modal-body p {
+        font-size: 0.75rem !important;
+        margin-bottom: 0.375rem !important;
+        line-height: 1.3 !important;
+    }
+
+    .modal-body .fw-bold {
+        font-size: 0.75rem !important;
+    }
+
+    .modal-footer {
+        padding: 0.5rem 0.75rem !important;
+    }
+
+    .modal-footer .btn {
+        font-size: 0.75rem !important;
+        padding: 0.375rem 0.75rem !important;
+        min-height: 40px !important;
+    }
 }
 
 @media (max-width: 768px) {

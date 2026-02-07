@@ -8,7 +8,7 @@ let currentTournamentParticipants = null;
 let currentViewStage = null;
 let stadiumBindings = [];
 let lastAssignmentKeys = new Set(); // To track which assignments we've already notified about
-let notificationAudio = null;
+var notificationAudio = null;
 let notificationAudioUnlocked = false;
 
 // Bracket connector state
